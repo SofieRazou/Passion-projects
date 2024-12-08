@@ -55,9 +55,7 @@ void loop() {
     digitalWrite(bluePin, LOW);    // Turn off blue LED
     digitalWrite(greenPin, LOW);   // Turn off green LED (end of event)
   }
-
-  // Optionally, use the minute data to fine-tune the servo position or simulate more detailed behavior
-  // For example, you can map the minutes to the servo for a more granular simulation
+ 
   int minutePosition = map(minute, 0, 59, 0, 180);  // Map minutes to servo position
   myServo.write(minutePosition);                      // Move servo based on the minute
   delay(1000);                                        // Wait for 1 second to show movement
