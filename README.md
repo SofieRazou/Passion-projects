@@ -1,2 +1,2 @@
 # Passion projects
-A group of essential cpp practice projects 
+A group of essential passion practice projects of mine.
