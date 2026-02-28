@@ -2,4 +2,4 @@ In this project, I explored in real-time simulation the performace of an emulate
 implementation, using parallelism and a custom GUI with progress bars, and vitals like rutime and RAM memory usage. 
 
 
-<img src="https://github.com/SofieRazou/Passion-projects/blob/main/QPU_VS_CPU_FACTORS/gpu_vs_cpu_pic.png" alt="Alt text" width="1000"/>
+<img src="https://github.com/SofieRazou/Passion-projects/blob/main/QPU_VS_CPU_FACTORS/gpu_vs_cpu_pic.png" alt="Alt text" width="900"/>
