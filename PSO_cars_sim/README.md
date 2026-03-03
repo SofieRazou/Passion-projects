@@ -1,5 +1,4 @@
-
-##Particle Swarm Optimization – Robot Car Simulation
+## Particle Swarm Optimization – Robot Car Simulation
 
 This is my Particle Swarm Algorithm project, with a simulated swarm of robot-cars in a custom velocity environment, with collision avoidance and trajectory control optimization.
 
