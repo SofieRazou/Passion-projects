@@ -4,5 +4,5 @@ This is my Particle Swarm Algorithm project, with a simulated swarm of robot-car
 
 ![Alt Text](https://github.com/SofieRazou/Passion-projects/blob/main/PSO_cars_sim/pso_recording-2.gif)
 
-<img src="https://github.com/SofieRazou/Passion-projects/blob/main/PSO_cars_sim/pso_recording-2.gif" width="48">
+<img src="https://github.com/SofieRazou/Passion-projects/blob/main/PSO_cars_sim/pso_recording-2.gif" width="700" height = "800">
 
