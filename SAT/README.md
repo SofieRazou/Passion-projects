@@ -1,4 +1,4 @@
 This project is a fusion of three main interests of mine (pun intented hehe): The intersection of hardware and software formal verification, and usage of those for interesting health-care reasons. For this reasons, I developped SAT Fusion, a SAT solver based on the CNF formulation of clauses, which is implemented and prototyped in C++ and then simplified in memory resources and sophistication for sensor fusion.This sensor fusion envolved the most useful sensors for assistance of navigation for visually impared people: an IMU for tumbling warning, an ultrasonic sensor for dynamic and static obstacle tracking and two IR sensors for line following of said path. Of course, the user receives force-feedback with a simple servo motor, in various senarios the sensor fusion module assesses and the servo actuates. 
 Enjoy!!
 
-![Alt text](project_sat.png)
+![Alt text](/SAT/project_sat.png)
