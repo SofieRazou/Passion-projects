@@ -35,4 +35,10 @@ Enjoy!
 
 ---
 
-![SAT Fusion Diagram](/SAT/project_sat.png)
+<div align="center">
+<img src="/SAT/project_sat.png" width="400" style="transform: rotate(-90deg);" />
+</div>
+
+![C++](https://img.shields.io/badge/C%2B%2B-Embedded-blue)
+![Arduino](https://img.shields.io/badge/Platform-Arduino-green)
+![Status](https://img.shields.io/badge/Status-Prototype-orange)
