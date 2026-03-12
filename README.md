@@ -1,7 +1,7 @@
 <p align="center">
   <img src="ascii-art-text.png" width="700">
 </p>
-A collection of my **personal engineering and research projects** exploring ideas in:
+A collection of my ~personal engineering and research projects~ exploring ideas in:
 
 - algorithms
 - robotics
@@ -13,6 +13,7 @@ A collection of my **personal engineering and research projects** exploring idea
 
 Most of these projects were developed as **independent experiments, course extensions, or research explorations**.
 
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Projects are listed in **reverse chronological order (newest first)**.
 
 ---
@@ -186,9 +187,9 @@ Course project developed at **ECE NTUA** exploring probabilistic strategies usin
 
 ---
 
-# Areas of Exploration
+# Future areas of Exploration
 
-Across these projects I explore topics including:
+Across new projects I would like to explore topics including:
 
 - robotics and autonomous systems
 - embedded systems
@@ -200,6 +201,6 @@ Across these projects I explore topics including:
 - computational physics
 - scientific simulation
 
----
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 More experiments and research prototypes will be added over time.
