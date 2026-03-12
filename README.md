@@ -3,7 +3,7 @@
   
 </p>
 
-A collection of my ~personal engineering and research projects~ exploring ideas in:
+A collection of my personal engineering and research projects exploring ideas in:
 
 - algorithms
 - robotics
