@@ -16,7 +16,7 @@ Most of these projects were developed as **independent experiments, course exten
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Projects are listed in **reverse chronological order (newest first)**.
 
----
+----------------------------------------------------------------------
 
 # Projects
 
