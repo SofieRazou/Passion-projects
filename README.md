@@ -1,6 +1,8 @@
 <p align="center">
   <img src="ascii-art-text.png" width="700">
+  
 </p>
+
 A collection of my ~personal engineering and research projects~ exploring ideas in:
 
 - algorithms
