@@ -1,1 +1,1 @@
-
+Deployed a fully functional and extendible simulink model [1-DOF] using a port-hamiltonian inspired PID controller, benchmarked against a regular PID one. Project will extend this model to a [2-DOF] arm mechanism with external non-linearities and a teleoperational environment to test port hamiltonian theory to its fullest potential. 
