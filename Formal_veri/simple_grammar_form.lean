@@ -1,4 +1,4 @@
--- Girregular
+-- G
 inductive Alphabet where
   | a
   | b
