@@ -1,8 +1,9 @@
-Error in port widths or dimensions. 'Output Port 1' of 'Copy_of_outputs_AsymmetricSpring/Subsystem2/ETHERNET_UDP_TX_BL1/Data' is a one dimensional vector with 8 elements.
-Component:Simulink | Category:Block diagram error
-Error in port widths or dimensions. 'Input Port 1' of 'Copy_of_outputs_AsymmetricSpring/Subsystem2/ETHERNET_UDP_TX_BL1/S-Function1' is a one dimensional vector with 1024 elements.
+The call to rti1202_make_rtw_hook, during the before_tlc hook generated the following error:
+    *** Stopped RTI build procedure
 
-
+The build process will terminate as a result.
+Caused by:
+*** Stopped RTI build procedure 
 import socket
 import struct
 import time
