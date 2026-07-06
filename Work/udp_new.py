@@ -2,81 +2,53 @@ import socket
 import struct
 import time
 
-# Network Configuration
+# 1. Network Configuration
 UDP_IP = "134.105.60.99"
 UDP_PORT = 55001
-
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
+# The UI path string that you copied exactly
 VAR_PATH = r'Platform()://Model Root/Subsystem2/Ch16/Out1'
 
 try:
     active_platforms = Application.ActiveExperiment.Platforms
-
     if len(active_platforms) == 0:
         raise RuntimeError("No active platform found. Ensure your experiment is open.")
-
+        
     my_platform = active_platforms[0]
-
+    
     print(f"Connected to Platform: {my_platform.Name}")
-    print(f"Looking for: {VAR_PATH}")
-
-    # --------------------------------------------------
-    # Inspect VariableDescriptions
-    # --------------------------------------------------
-
-    vds = my_platform.VariableDescriptions
-
-    print("\nVariableDescriptions object:")
-    print(type(vds))
-
-    print("\nMethods:")
-    print(dir(vds))
-
-    print("\nNumber of variables:", vds.Count)
-
-    print("\nPrinting first 10 variable descriptions...")
-
-    for i in range(min(vds.Count, 10)):
+    print(f"Direct memory polling active for: {VAR_PATH}")
+    print("Click 'Stop' in the script toolbar to halt.")
+    
+    # 2. Main UDP Direct Loop
+    while True:
         try:
-            print("\n--------------------------------")
-            print("Index:", i)
+            # Bypasses the .Variables lookup container completely
+            raw_val = my_platform.ReadVariable(VAR_PATH)
+        except Exception:
+            # If the platform layer is busy, wait briefly and try the next tick
+            time.sleep(0.01)
+            continue
+            
+        # Ignore frames if the hardware hasn't updated or is temporarily unmapped
+        if raw_val is None or "unknown" in str(raw_val).lower():
+            time.sleep(0.01)
+            continue
+            
+        live_value = float(raw_val)
+        
+        # Pack into binary data (8-byte double precision float)
+        packet = struct.pack("<d", live_value)
+        
+        # Stream over network socket
+        sock.sendto(packet, (UDP_IP, UDP_PORT))
+        
+        # 100 Hz refresh loop
+        time.sleep(0.01)
 
-            var = vds.Item(i)
-
-            print("Object:", var)
-            print("Type:", type(var))
-            print("Members:")
-            print(dir(var))
-
-        except Exception as e:
-            print("Could not access item", i)
-            print(e)
-
-    # --------------------------------------------------
-    # Try accessing your variable directly
-    # --------------------------------------------------
-
-    print("\nChecking if variable exists...")
-
-    try:
-        print("Contains:", vds.Contains(VAR_PATH))
-
-        var = vds.Item(VAR_PATH)
-
-        print("\nVariable found!")
-        print(var)
-        print(type(var))
-
-        print("\nVariable members:")
-        print(dir(var))
-
-    except Exception as e:
-        print("Could not access variable using path.")
-        print(e)
-
-except Exception:
+except Exception as e:
     import traceback
     print("\n--- SCRIPT EXCEPTION ENCOUNTERED ---")
     print(traceback.format_exc())
