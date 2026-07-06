@@ -1,3 +1,8 @@
+Error in port widths or dimensions. 'Output Port 1' of 'Copy_of_outputs_AsymmetricSpring/Subsystem2/ETHERNET_UDP_TX_BL1/Data' is a one dimensional vector with 8 elements.
+Component:Simulink | Category:Block diagram error
+Error in port widths or dimensions. 'Input Port 1' of 'Copy_of_outputs_AsymmetricSpring/Subsystem2/ETHERNET_UDP_TX_BL1/S-Function1' is a one dimensional vector with 1024 elements.
+
+
 import socket
 import struct
 import time
