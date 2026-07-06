@@ -1,3 +1,17 @@
+Click 'Stop' in the script toolbar to halt.
+An error occurred while streaming variables over UDP:
+Traceback (most recent call last):
+  File "<interactive input>", line 25, in <module>
+  File "C:\Program Files\Python39\lib\site-packages\win32com\client\dynamic.py", line 572, in __getattr__
+    raise AttributeError("%s.%s" % (self._username_, attr))
+AttributeError: <unknown>.Value
+
+<class 'AttributeError'>
+AttributeError('<unknown>.Value')
+
+
+
+
 # Grab the first connected hardware platform and print its actual name
 active_platforms = Application.ActiveExperiment.Platforms
 
