@@ -3,14 +3,14 @@ import struct
 import time
 
 # 1. Setup local loopback UDP target (Keeping your exact configuration)
-UDP_IP = "127.0.0.1" 
+UDP_IP = "134.105.60.99"
 UDP_PORT = 55001
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
 # 2. Hardcoded path exactly as it's targeted in the backend map
 # Note: The 'r' ensures the backslash in Ch16\Out1 is treated as text, not an escape character
-VAR_PATH = r
+VAR_PATH = r'Platform()://Model Root/Subsystem2/Ch16/Out1'
 
 try:
     my_platform = Application.ActiveExperiment.Platforms["Platform"]
@@ -22,7 +22,7 @@ try:
         print("Verify if your I/O folder is named 'Analog Outputs' or similar in the layout.")
     else:
         my_var = variables_collection[VAR_PATH]
-        print(f"SUCCESS: Streaming hardware variable {VAR_PATH} over UDP port 5005...")
+        print(f"SUCCESS: Streaming hardware variable {VAR_PATH} over UDP port 55001...")
         print("Click 'Stop' in the script toolbar to halt.")
         
         # 3. Local UDP loop
