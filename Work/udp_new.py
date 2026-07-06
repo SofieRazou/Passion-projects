@@ -14,25 +14,25 @@ VAR_PATH = r'Platform()://Model Root/Subsystem2/Ch16/Out1'
 try:
     active_platforms = Application.ActiveExperiment.Platforms
     if len(active_platforms) == 0:
-        raise RuntimeError("No active platform found.")
+        raise RuntimeError("No active platform found. Ensure your experiment is open.")
         
     my_platform = active_platforms[0]
     
     print(f"Connected to Platform: {my_platform.Name}")
-    print("Forcing direct memory poll to stream variable...")
+    print(f"Direct memory polling active for: {VAR_PATH}")
     print("Click 'Stop' in the script toolbar to halt.")
     
     # 2. Main UDP Direct Loop
     while True:
-        # Bypass the dictionary lookup by reading directly from the platform interface
         try:
+            # Bypasses the .Variables lookup container completely
             raw_val = my_platform.ReadVariable(VAR_PATH)
         except Exception:
-            # If the platform itself is busy or locking, wait and try again
+            # If the platform layer is busy, wait briefly and try the next tick
             time.sleep(0.01)
             continue
             
-        # Guard against uninitialized/Unknown hardware data states
+        # Ignore frames if the hardware hasn't updated or is temporarily unmapped
         if raw_val is None or "unknown" in str(raw_val).lower():
             time.sleep(0.01)
             continue
@@ -42,14 +42,14 @@ try:
         # Pack into binary data (8-byte double precision float)
         packet = struct.pack("<d", live_value)
         
-        # Stream out over network socket
+        # Stream over network socket
         sock.sendto(packet, (UDP_IP, UDP_PORT))
         
-        # 100 Hz loop refresh
+        # 100 Hz refresh loop
         time.sleep(0.01)
 
 except Exception as e:
     import traceback
-    print("\n--- LOOP FAILURE DETAILS ---")
+    print("\n--- SCRIPT EXCEPTION ENCOUNTERED ---")
     print(traceback.format_exc())
 
