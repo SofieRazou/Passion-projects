@@ -1,11 +1,10 @@
-my_platform = Application.ActiveExperiment.Platforms["Platform"]
-variables_collection = my_platform.ActiveVariableDescription.Variables
+# Grab the first connected hardware platform and print its actual name
+active_platforms = Application.ActiveExperiment.Platforms
 
-print("--- Real Python API Keys ---")
-for key in variables_collection.Keys:
-    if "ch16" in key.lower():
-        print(f"PASTE THIS EXACT STRING: r'{key}'")
-
+if len(active_platforms) > 0:
+    print(f"Your exact platform name is: '{active_platforms[0].Name}'")
+else:
+    print("No platform found. Make sure your experiment is fully open.")
 
 import socket
 import struct
