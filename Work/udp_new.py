@@ -1,3 +1,12 @@
+my_platform = Application.ActiveExperiment.Platforms["Platform"]
+variables_collection = my_platform.ActiveVariableDescription.Variables
+
+print("--- Real Python API Keys ---")
+for key in variables_collection.Keys:
+    if "ch16" in key.lower():
+        print(f"PASTE THIS EXACT STRING: r'{key}'")
+
+
 import socket
 import struct
 import time
