@@ -6,7 +6,7 @@ import numpy as np
 import time
 import sys
 
-from  SManager import create_mem
+from  shared_mem_manager import SManager
 
 
 # UDP_IP = "134.105.60.99"
@@ -24,7 +24,8 @@ sock.settimeout(6)
 
 print(f"I am ALIVEEEE! Listening for UDP packets on {UDP_IP}:{UDP_PORT}...")
 
-sm, mem_data = create_mem(mem_name="udp_share", size=4)
+manager = SManager()
+sm, mem_data = manager.create_mem(mem_name="shared_mem", size=4)
 
 
 def plot_signal(data, time_arr):
@@ -46,26 +47,36 @@ start_time = time.time()
 values = []
 time_arr = []
 time.sleep(0.1)  # Allow time for the sender to start sending data
-while True:
+
+
+def main():
+    
+    print("Shared memory created. Press Ctrl+C to exit.")
+
+    start_time = time.time()
     try:
-       
-                mem_data, addr = sock.recvfrom(1024)
-                t = time.time() - start_time
-                if len(mem_data) == PACKET_SIZE: #i think 64 for the torque, angle and phase current outputs 
+        while True:
+            mem_data, addr = sock.recvfrom(1024)
+            t = time.time() - start_time
+            if len(mem_data) == PACKET_SIZE: #i think 64 for the torque, angle and phase current outputs 
                     value= struct.unpack(PACKET_FORMAT, mem_data)[0]
                     values.append(value)
                     time_arr.append(t)
                     print(f"Succesfully received angle: {value:.2f} degrees")
-    except socket.timeout:
-             print("No data received within the timeout period.")
-             break    
             
+    except KeyboardInterrupt or socket.timeout:
+        print("Exiting...")
+    finally:
+        print("Data registred in shared memory")
+        sock.close
+    if values :
+        plot_signal(values, time_arr=time_arr)
+    else:
+        print("No data received.")
+    # finally:
+    #     manager.close()
+    #     manager.deallocate()
+    #     print("Shared memory deallocated.") 
 
-    except KeyboardInterrupt:
-        print("Receiver-end interrupted.")
-        sock.close()
-
-if values :
-     plot_signal(values, time_arr=time_arr)
-else:
-    print("No data received.")
+if __name__ == "__main__":
+    main()
