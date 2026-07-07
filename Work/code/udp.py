@@ -14,8 +14,8 @@ from  shared_mem_manager import SManager
 
 UDP_IP = "127.0.0.1"
 UDP_PORT = 5005
-PACKET_SIZE = 4
-PACKET_FORMAT = '<f' # the one outputed by the simulink blocks
+PACKET_SIZE = 8
+PACKET_FORMAT = '<d' # the one outputed by the simulink blocks
 
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -25,7 +25,7 @@ sock.settimeout(6)
 print(f"I am ALIVEEEE! Listening for UDP packets on {UDP_IP}:{UDP_PORT}...")
 
 manager = SManager()
-sm, mem_data = manager.create_mem(mem_name="shared_mem", size=4)
+sm, mem_data = manager.create_mem(mem_name="shared_mem", size=PACKET_SIZE)
 
 
 def plot_signal(data, time_arr):
@@ -56,11 +56,12 @@ def main():
     start_time = time.time()
     try:
         while True:
-            mem_data, addr = sock.recvfrom(1024)
+            packet, addr = sock.recvfrom(1024)
             t = time.time() - start_time
-            if len(mem_data) == PACKET_SIZE: #i think 64 for the torque, angle and phase current outputs 
-                    value= struct.unpack(PACKET_FORMAT, mem_data)[0]
+            if len(packet) == PACKET_SIZE: #i think 64 for the torque, angle and phase current outputs 
+                    value= struct.unpack(PACKET_FORMAT, packet)[0]
                     values.append(value)
+                    mem_data[0] = value
                     time_arr.append(t)
                     print(f"Succesfully received angle: {value:.2f} degrees")
             
@@ -68,7 +69,7 @@ def main():
         print("Exiting...")
     finally:
         print("Data registred in shared memory")
-        sock.close
+        sock.close()
     if values :
         plot_signal(values, time_arr=time_arr)
     else:
