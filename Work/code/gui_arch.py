@@ -1,55 +1,75 @@
 import sys
-from multiprocessing import shared_memory
-from  SManager import create_mem
-
-import time
-import pandas as pd
 import numpy as np
-import random 
-import matplotlib.pyplot as plt 
+from multiprocessing import shared_memory
 
 import pyqtgraph as pg
-from PyQt6 import QtCore, QtWidgets
-from PyQt6.QtWidgets import QMainWindow, QApplication, QPushButton, QVBoxLayout, QWidget
+from PyQt6 import QtCore
+from PyQt6.QtWidgets import QMainWindow, QApplication
 
 
-BUFFER_SIZE = 4
-sm, mem_rec_data = create_mem(mem_name="udp_share", size=BUFFER_SIZE)
+BUFFER_SIZE = 8
+MEM_NAME = "udp_share"
+DTYPE = np.float32
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
+        self.sm = shared_memory.SharedMemory(
+            name=MEM_NAME,
+            create=False
+        )
+
+        self.mem_rec_data = np.ndarray(
+            (BUFFER_SIZE,),
+            dtype=DTYPE,
+            buffer=self.sm.buf
+        )
+
         self.setWindowTitle("CAPT Motor Dashboard")
 
         self.plot_graph = pg.PlotWidget()
-        self.plot_graph.setBackground('w')
-        pen = pg.mkPen(color=(255,0,255), width=2)
-
-
+        self.plot_graph.setBackground("w")
         self.setCentralWidget(self.plot_graph)
-    
-        self.plot_graph.setTitle("Motor Torque over Time" , color= "b", size = "18pt")
-        self.plot_graph.setLabel('left', 'Torque (Nm)', color='b', size=30)
-        self.plot_graph.setLabel('bottom', 'Time (s)', color='b', size=30)
+
+        self.plot_graph.setTitle("Shared Memory Data", color="b", size="18pt")
+        self.plot_graph.setLabel("left", "Value", color="b")
+        self.plot_graph.setLabel("bottom", "Sample", color="b")
         self.plot_graph.showGrid(x=True, y=True)
-        self.plot_graph.setXRange(0, 10)
-        self.plot_graph.setYRange(20,30)
 
-        self.time = list(range(10))
-        self.torque = mem_rec_data.tolist()  # Fetch received-over-UDP data from shared memory
-        self.plot_graph.plot(self.time, self.torque, name="Torque", pen=pen, symbol='o', symbolSize=10, symbolBrush=('b'))
+        self.x = np.arange(BUFFER_SIZE)
+        self.y = self.mem_rec_data.copy()
 
-    
+        pen = pg.mkPen(color=(255, 0, 255), width=2)
 
-    #dynamic data update
-    def upd_plot(self, sampling_rate, torque_data):
-        fetched_data = self.fetch_data_from_mem(mem_name="udp_share", size=BUFFER_SIZE)
-        print(f"Fetched data from shared memory: {fetched_data}")
-app  = QApplication([])
-window = MainWindow()
-window.show()
-app.exec()
+        self.curve = self.plot_graph.plot(
+            self.x,
+            self.y,
+            pen=pen,
+            symbol="o",
+            symbolSize=8,
+            symbolBrush="b"
+        )
 
+        self.timer = QtCore.QTimer()
+        self.timer.timeout.connect(self.update_plot)
+        self.timer.start(50)
+
+    def update_plot(self):
+        self.y = self.mem_rec_data.copy()
+        self.curve.setData(self.x, self.y)
+        print("GUI read:", self.y)
+
+    def closeEvent(self, event):
+        self.sm.close()
+        event.accept()
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
 
 
