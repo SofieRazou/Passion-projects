@@ -2,8 +2,6 @@ import sys
 import numpy as np
 from multiprocessing import shared_memory
 
-from shared_mem_manager import SManager
-
 import pyqtgraph as pg
 from PyQt6 import QtCore
 from PyQt6.QtWidgets import QMainWindow, QApplication
@@ -73,6 +71,8 @@ if __name__ == "__main__":
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
+
+
 
 
 
