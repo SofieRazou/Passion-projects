@@ -81,6 +81,7 @@
 #     window = MainWindow()
 #     window.show()
 #     sys.exit(app.exec())import sys
+import sys
 import numpy as np
 from multiprocessing import shared_memory
 
@@ -185,6 +186,3 @@ if __name__ == "__main__":
     window.resize(1200, 800)
     window.show()
     sys.exit(app.exec())
-
-
-
