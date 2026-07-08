@@ -81,7 +81,6 @@
 
 # if __name__ == "__main__":
 #     main()
-
 import socket
 import struct
 import matplotlib.pyplot as plt
@@ -93,11 +92,11 @@ import sys
 from  shared_mem_manager import SManager
 
 
-# UDP_IP = "134.105.60.99"
-# UDP_PORT = 55001
+UDP_IP = "134.105.60.99"
+UDP_PORT = 55001
 
-UDP_IP = "127.0.0.1"
-UDP_PORT = 5005
+# UDP_IP = "127.0.0.1"
+# UDP_PORT = 5005
 PACKET_SIZE = 16
 PACKET_FORMAT = '<4f' # the one outputed by the simulink blocks
 
@@ -146,10 +145,7 @@ def main():
             packet, addr = sock.recvfrom(16)
             t = time.time() - start_time
             if len(packet) == PACKET_SIZE: #i think 64 for the torque, angle and phase current outputs 
-                    angle[i]= struct.unpack(PACKET_FORMAT, packet)[0]
-                    torque[i]= struct.unpack(PACKET_FORMAT, packet)[1]
-                    phase1[i]= struct.unpack(PACKET_FORMAT, packet)[2]
-                    phase2[i]= struct.unpack(PACKET_FORMAT, packet)[3]
+                    angle, torque, phase1, phase2= struct.unpack(PACKET_FORMAT, packet)
 
                     #writing stats in shared memory 
                     mem_data[0] = angle
@@ -158,10 +154,10 @@ def main():
                     mem_data[3] = phase2
                     time_arr.append(t)
                     
-                    print(f"LIVE Angle: {angle[i]:.2f} degrees")
-                    print(f"LIVE Torque: {torque[i]:.2f} Nm")
-                    print(f"LIVE Current of Phase 1: {phase1[i]:.2f} Amps")
-                    print(f"LIVE Current of Phase 2 : {phase2[i]:.2f} Amps")
+                    print(f"LIVE Angle: {angle:.2f} degrees")
+                    print(f"LIVE Torque: {torque:.2f} Nm")
+                    print(f"LIVE Current of Phase 1: {phase1:.2f} Amps")
+                    print(f"LIVE Current of Phase 2 : {phase2:.2f} Amps")
                     #iterate through the 4 different data stats 
                     i = i+1
             
