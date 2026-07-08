@@ -98,9 +98,10 @@ from PyQt6 import QtCore
 from PyQt6.QtWidgets import QMainWindow, QApplication
 
 
-BUFFER_SIZE = 16
-RUNNING_SIZE = 400
-UPD_PERIOD = 0.5 # in sec 
+NUM_SIGNALS = 4
+HISTORY_SIZE = 300
+UPDATE_PERIOD = 0.05
+
 MEM_NAME = "shared_mem"
 DTYPE = np.float32
 
@@ -110,13 +111,7 @@ STYLES_FILE = "gui_styles.qss"
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        
-        self.start_time = 0 #AMBIGUOUS 0 SEE AGAIN FOR REVISION 
-        self.time = time.time() - self.start_time
-        self.angle_history = np.zeros(RUNNING_SIZE, dtype=np.float32)
-        self.torque_history = np.zeros(RUNNING_SIZE, dtype=np.float32)
-        self.phase1_history = np.zeros(RUNNING_SIZE, dtype=np.float32)
-        self.phase2_history = np.zeros(RUNNING_SIZE, dtype=np.float32)
+
         try:
             self.setStyleSheet(self.read_file(STYLES_FILE))
         except FileNotFoundError:
@@ -128,14 +123,13 @@ class MainWindow(QMainWindow):
         )
 
         self.mem_rec_data = np.ndarray(
-            (BUFFER_SIZE,),
+            (NUM_SIGNALS,),
             dtype=DTYPE,
             buffer=self.sm.buf
         )
 
         self.setWindowTitle("CAPT Motor Dashboard")
 
-        # Main layout for multiple plots
         self.layout = pg.GraphicsLayoutWidget()
         self.setCentralWidget(self.layout)
 
@@ -152,50 +146,56 @@ class MainWindow(QMainWindow):
         ]
 
         for plot in self.plots:
-            plot.setLabel("left", "KPI")
-            plot.setLabel("bottom", "Time(s)")
-            plot.showGrid(x=True, y=True)
-            plot.setMouseEnabled(x=True, y=True)
+            plot.setBackground("w")
+            plot.setLabel("left", "Value")
+            plot.setLabel("bottom", "Time", units="s")
+            plot.showGrid(x=True, y=True, alpha=0.3)
 
-        self.x = np.arange(BUFFER_SIZE)
+        self.time_history = np.linspace(
+            -(HISTORY_SIZE - 1) * UPDATE_PERIOD,
+            0,
+            HISTORY_SIZE,
+            dtype=np.float32
+        )
 
-        pen = pg.mkPen(color=(255, 0, 255), width=2)
+        self.angle_history = np.zeros(HISTORY_SIZE, dtype=np.float32)
+        self.torque_history = np.zeros(HISTORY_SIZE, dtype=np.float32)
+        self.phase1_history = np.zeros(HISTORY_SIZE, dtype=np.float32)
+        self.phase2_history = np.zeros(HISTORY_SIZE, dtype=np.float32)
 
-        self.curve1 = self.plot_graph1.plot(pen=pen, symbol="o", symbolSize=8, symbolBrush="b")
-        self.curve2 = self.plot_graph2.plot(pen=pen, symbol="o", symbolSize=8, symbolBrush="b")
-        self.curve3 = self.plot_graph3.plot(pen=pen, symbol="o", symbolSize=8, symbolBrush="b")
-        self.curve4 = self.plot_graph4.plot(pen=pen, symbol="o", symbolSize=8, symbolBrush="b")
+        self.curve1 = self.plot_graph1.plot(pen=pg.mkPen("#0078D7", width=2))
+        self.curve2 = self.plot_graph2.plot(pen=pg.mkPen("#E67E22", width=2))
+        self.curve3 = self.plot_graph3.plot(pen=pg.mkPen("#2ECC71", width=2))
+        self.curve4 = self.plot_graph4.plot(pen=pg.mkPen("#8E44AD", width=2))
 
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_plot)
-        self.timer.start(50)
+        self.timer.start(int(UPDATE_PERIOD * 1000))
 
     def update_plot(self):
-        angle = self.mem_rec_data[0]
-        torque = self.mem_rec_data[1]
-        phase1 = self.mem_rec_data[2]
-        phase2 = self.mem_rec_data[4]
+        data = self.mem_rec_data.copy()
+
+        angle = data[0]
+        torque = data[1]
+        phase1 = data[2]
+        phase2 = data[3]
 
         self.angle_history = np.roll(self.angle_history, -1)
         self.torque_history = np.roll(self.torque_history, -1)
         self.phase1_history = np.roll(self.phase1_history, -1)
         self.phase2_history = np.roll(self.phase2_history, -1)
-        
 
-        #update history values
         self.angle_history[-1] = angle
         self.torque_history[-1] = torque
         self.phase1_history[-1] = phase1
         self.phase2_history[-1] = phase2
 
+        self.curve1.setData(self.time_history, self.angle_history)
+        self.curve2.setData(self.time_history, self.torque_history)
+        self.curve3.setData(self.time_history, self.phase1_history)
+        self.curve4.setData(self.time_history, self.phase2_history)
 
-        #live running window for plot updating 
-        self.curve1.setData(self.time, self.angle_history)
-        self.curve2.setData(self.time, self.torque_history)
-        self.curve3.setData(self.time, self.phase1_history)
-        self.curve4.setData(self.time, self.phase2_history)
-
-        print("GUI reading data...")
+        print("GUI read:", data)
 
     def closeEvent(self, event):
         self.sm.close()
@@ -213,6 +213,3 @@ if __name__ == "__main__":
     window.resize(1200, 800)
     window.show()
     sys.exit(app.exec())
-
-
-
