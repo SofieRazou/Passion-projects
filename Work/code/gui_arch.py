@@ -11,11 +11,16 @@ BUFFER_SIZE = 8
 MEM_NAME = "shared_mem"
 DTYPE = np.float32
 
+STYLES_FILE = "gui_styles.qss"
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        #setting up modern styles :)
+        self.setStyleSheet(read_file, STYLES_FILE)
 
+        #shared memory for data acquisition 
         self.sm = shared_memory.SharedMemory(
             name=MEM_NAME,
             create=False
@@ -52,6 +57,7 @@ class MainWindow(QMainWindow):
             symbolBrush="b"
         )
 
+
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_plot)
         self.timer.start(50)
@@ -64,6 +70,10 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self.sm.close()
         event.accept()
+    def read_file(self, filename="styles"):
+         with open(filename, "r") as f:
+             print("Reading styles...")
+             return f.read()
 
 
 if __name__ == "__main__":
