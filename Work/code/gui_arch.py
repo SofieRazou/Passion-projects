@@ -89,6 +89,7 @@ Traceback (most recent call last):
 #     window.show()
 #     sys.exit(app.exec())import sys
 import sys
+import time
 import numpy as np
 from multiprocessing import shared_memory
 
@@ -98,6 +99,8 @@ from PyQt6.QtWidgets import QMainWindow, QApplication
 
 
 BUFFER_SIZE = 16
+RUNNING_SIZE = 400
+UPD_PERIOD = 0.5 # in sec 
 MEM_NAME = "shared_mem"
 DTYPE = np.float32
 
@@ -107,7 +110,13 @@ STYLES_FILE = "gui_styles.qss"
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-
+        
+        self.start_time = 0 #AMBIGUOUS 0 SEE AGAIN FOR REVISION 
+        self.time = time.time() - self.start_time
+        self.angle_history = np.zeros(RUNNING_SIZE, dtype=np.float32)
+        self.torque_history = np.zeros(RUNNING_SIZE, dtype=np.float32)
+        self.phase1_history = np.zeros(RUNNING_SIZE, dtype=np.float32)
+        self.phase2_history = np.zeros(RUNNING_SIZE, dtype=np.float32)
         try:
             self.setStyleSheet(self.read_file(STYLES_FILE))
         except FileNotFoundError:
@@ -143,8 +152,8 @@ class MainWindow(QMainWindow):
         ]
 
         for plot in self.plots:
-            plot.setLabel("left", "Value")
-            plot.setLabel("bottom", "Sample")
+            plot.setLabel("left", "KPI")
+            plot.setLabel("bottom", "Time(s)")
             plot.showGrid(x=True, y=True)
             plot.setMouseEnabled(x=True, y=True)
 
@@ -162,20 +171,31 @@ class MainWindow(QMainWindow):
         self.timer.start(50)
 
     def update_plot(self):
-        data = self.mem_rec_data.copy()
+        angle = self.mem_rec_data[0]
+        torque = self.mem_rec_data[1]
+        phase1 = self.mem_rec_data[2]
+        phase2 = self.mem_rec_data[4]
 
-        # Example split:
-        # data[0:2] angle-related
-        # data[2:4] torque-related
-        # data[4:6] current phase 1
-        # data[6:8] current phase 2
+        self.angle_history = np.roll(self.angle_history, -1)
+        self.torque_history = np.roll(self.torque_history, -1)
+        self.phase1_history = np.roll(self.phase1_history, -1)
+        self.phase2_history = np.roll(self.phase2_history, -1)
+        
 
-        self.curve1.setData(np.arange(2), data[0:2])
-        self.curve2.setData(np.arange(2), data[2:4])
-        self.curve3.setData(np.arange(2), data[4:6])
-        self.curve4.setData(np.arange(2), data[6:8])
+        #update history values
+        self.angle_history[-1] = angle
+        self.torque_history[-1] = torque
+        self.phase1_history[-1] = phase1
+        self.phase2_history[-1] = phase2
 
-        print("GUI read:", data)
+
+        #live running window for plot updating 
+        self.curve1.setData(self.time, self.angle_history)
+        self.curve2.setData(self.time, self.torque_history)
+        self.curve3.setData(self.time, self.phase1_history)
+        self.curve4.setData(self.time, self.phase2_history)
+
+        print("GUI reading data...")
 
     def closeEvent(self, event):
         self.sm.close()
@@ -193,3 +213,6 @@ if __name__ == "__main__":
     window.resize(1200, 800)
     window.show()
     sys.exit(app.exec())
+
+
+
