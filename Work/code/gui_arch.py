@@ -1,3 +1,10 @@
+(capt) C:\Users\javot\Desktop\sofia_code>python gui_arch.py
+Reading styles...
+Traceback (most recent call last):
+  File "C:\Users\javot\Desktop\sofia_code\gui_arch.py", line 102, in update_plot
+    self.curve1.setData(self.time, self.angle_history)
+  File "C:\Users\javot\Desktop\capt\lib\site-packages\pyqtgraph\graphicsItems\PlotDataItem.py", line 741, in setData
+    raise TypeError('When passing two unnamed argument
 # import sys
 # import numpy as np
 # from multiprocessing import shared_memory
