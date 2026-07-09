@@ -95,7 +95,7 @@ from multiprocessing import shared_memory
 
 import pyqtgraph as pg
 from PyQt6 import QtCore
-from PyQt6.QtWidgets import QMainWindow, QApplication, QPushButton
+from PyQt6.QtWidgets import QMainWindow, QApplication, QPushButton, QWidget
 
 
 NUM_SIGNALS = 4
@@ -177,8 +177,7 @@ class MainWindow(QMainWindow):
 
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_plot)
-        self.timer.start(int(UPDATE_PERIOD * 1000))
-
+        
     def update_plot(self):
         data = self.mem_rec_data.copy()
 
@@ -208,18 +207,15 @@ class MainWindow(QMainWindow):
         self.sm.close()
         event.accept()
     
-    def start_end_trigs(self, checked):
-        if checked:
-            return "START"
-        else:
-            return "STOP"
     def rec_meas(self, checked):
-        self.update_plot()
-        if self.start_end_trigs(checked)=="START":
-            self.update_plot()
+        if checked:
+            print("Measurement recording starting...")
+            self.start_button.setText("Click button to stop recording measurements")
+            self.timer.start(int(UPDATE_PERIOD * 1000))
         else:
-            sys.exit()
-            print("CAPT Motor dashboard exiting...")
+            print("Recording stopped")
+            self.start_button.setText("Click button to start recording measurements")
+            self.timer.stop()
 
 
     def read_file(self, filename):
