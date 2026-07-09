@@ -95,7 +95,7 @@ from multiprocessing import shared_memory
 
 import pyqtgraph as pg
 from PyQt6 import QtCore
-from PyQt6.QtWidgets import QMainWindow, QApplication, QPushButton, QWidget
+from PyQt6.QtWidgets import QMainWindow, QApplication, QPushButton, QWidget, QVBoxLayout
 
 
 NUM_SIGNALS = 4
@@ -130,11 +130,10 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("CAPT Motor Dashboard")
 
-        self.layout = pg.GraphicsLayoutWidget()
-        self.setCentralWidget(self.layout)
-
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
+
+        self.main_layout = QVBoxLayout(self.central_widget)
 
 
         #setting-up start-gui button 
@@ -143,14 +142,15 @@ class MainWindow(QMainWindow):
         self.start_button.setCheckable(True)
         self.start_button.clicked.connect(self.rec_meas)
 
-        self.layout.addWidget(self.start_button)
-        self.layout.addWidget(self.central_widget)
-        self.
+        self.main_layout.addWidget(self.start_button)
+        self.graph_layout = pg.GraphicsLayoutWidget()
+        self.main_layout.addWidget(self.graph_layout)
+       
 
-        self.plot_graph1 = self.layout.addPlot(row=0, col=0, title="Angle (deg)")
-        self.plot_graph2 = self.layout.addPlot(row=0, col=1, title="Torque (Nm)")
-        self.plot_graph3 = self.layout.addPlot(row=1, col=0, title="Current Phase 1 (A)")
-        self.plot_graph4 = self.layout.addPlot(row=1, col=1, title="Current Phase 2 (A)")
+        self.plot_graph1 = self.graph_layout.addPlot(row=0, col=0, title="Angle (deg)")
+        self.plot_graph2 = self.graph_layout.addPlot(row=0, col=1, title="Torque (Nm)")
+        self.plot_graph3 = self.graph_layout.addPlot(row=1, col=0, title="Current Phase 1 (A)")
+        self.plot_graph4 = self.graph_layout.addPlot(row=1, col=1, title="Current Phase 2 (A)")
 
         self.plots = [
             self.plot_graph1,
