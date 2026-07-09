@@ -100,14 +100,12 @@ from PyQt6.QtWidgets import (
     QTabWidget, QVBoxLayout, QToolBar, QLabel
 )
 
-NUM_SIGNALS = 4
+NUM_SIGNALS = 6
 HISTORY_SIZE = 300
 UPDATE_PERIOD = 0.05
 
 MEM_NAME = "shared_mem"
 DTYPE = np.float32
-
-PAGE_NAMES = ["Home", "Stats", "Debugging"]
 
 
 class MainWindow(QMainWindow):
@@ -124,33 +122,29 @@ class MainWindow(QMainWindow):
             buffer=self.sm.buf
         )
 
-        # Main tabs
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
 
-        # Create pages
         self.home_page = QWidget()
         self.stats_page = QWidget()
         self.debug_page = QWidget()
 
-        self.tabs.addTab(self.home_page, "Home")
-        self.tabs.addTab(self.stats_page, "Stats")
+        self.tabs.addTab(self.home_page, "Measurements")
+        self.tabs.addTab(self.stats_page, "Impedance / Admittance")
         self.tabs.addTab(self.debug_page, "Debugging")
 
-        # Layouts for each page
         self.home_layout = QVBoxLayout(self.home_page)
         self.stats_layout = QVBoxLayout(self.stats_page)
         self.debug_layout = QVBoxLayout(self.debug_page)
 
-        # Toolbar
         toolbar = QToolBar("Actions")
         self.addToolBar(toolbar)
 
-        home_action = QAction("Home", self)
+        home_action = QAction("Measurements", self)
         home_action.triggered.connect(lambda: self.tabs.setCurrentIndex(0))
         toolbar.addAction(home_action)
 
-        stats_action = QAction("Stats", self)
+        stats_action = QAction("Impedance / Admittance", self)
         stats_action.triggered.connect(lambda: self.tabs.setCurrentIndex(1))
         toolbar.addAction(stats_action)
 
@@ -158,47 +152,45 @@ class MainWindow(QMainWindow):
         debug_action.triggered.connect(lambda: self.tabs.setCurrentIndex(2))
         toolbar.addAction(debug_action)
 
-        # First tab: 4 regular graphs
         self.start_button = QPushButton("Start CAPT Motor recording measurements")
         self.start_button.setCheckable(True)
         self.start_button.clicked.connect(self.rec_meas)
         self.home_layout.addWidget(self.start_button)
 
+        # First tab: angle, torque, phase currents
         self.graph_layout = pg.GraphicsLayoutWidget()
         self.home_layout.addWidget(self.graph_layout)
 
-        self.plot_graph1 = self.graph_layout.addPlot(row=0, col=0, title="Angle (deg)")
-        self.plot_graph2 = self.graph_layout.addPlot(row=0, col=1, title="Torque (Nm)")
-        self.plot_graph3 = self.graph_layout.addPlot(row=1, col=0, title="Current Phase 1 (A)")
-        self.plot_graph4 = self.graph_layout.addPlot(row=1, col=1, title="Current Phase 2 (A)")
+        self.angle_plot = self.graph_layout.addPlot(row=0, col=0, title="Angle (deg)")
+        self.torque_plot = self.graph_layout.addPlot(row=0, col=1, title="Torque (Nm)")
+        self.phase1_plot = self.graph_layout.addPlot(row=1, col=0, title="Current Phase 1 (A)")
+        self.phase2_plot = self.graph_layout.addPlot(row=1, col=1, title="Current Phase 2 (A)")
 
-        self.plots = [
-            self.plot_graph1,
-            self.plot_graph2,
-            self.plot_graph3,
-            self.plot_graph4,
+        # Second tab: impedance and admittance
+        self.stats_graph_layout = pg.GraphicsLayoutWidget()
+        self.stats_layout.addWidget(self.stats_graph_layout)
+
+        self.impedance_plot = self.stats_graph_layout.addPlot(row=0, col=0, title="Impedance")
+        self.admittance_plot = self.stats_graph_layout.addPlot(row=1, col=0, title="Admittance")
+
+        all_plots = [
+            self.angle_plot,
+            self.torque_plot,
+            self.phase1_plot,
+            self.phase2_plot,
+            self.impedance_plot,
+            self.admittance_plot,
         ]
 
-        for plot in self.plots:
+        for plot in all_plots:
             plot.setLabel("left", "Value")
             plot.setLabel("bottom", "Time", units="s")
             plot.showGrid(x=True, y=True, alpha=0.3)
 
-        # Second tab: 2 graphs
-        self.stats_graph_layout = pg.GraphicsLayoutWidget()
-        self.stats_layout.addWidget(self.stats_graph_layout)
-
-        self.stats_plot1 = self.stats_graph_layout.addPlot(row=0, col=0, title="Angle vs Torque")
-        self.stats_plot2 = self.stats_graph_layout.addPlot(row=1, col=0, title="Current Difference")
-
-        self.stats_plot1.showGrid(x=True, y=True, alpha=0.3)
-        self.stats_plot2.showGrid(x=True, y=True, alpha=0.3)
-
-        # Third tab: text
+        # Third tab: plain text
         self.debug_label = QLabel("Debugging information will appear here.")
         self.debug_layout.addWidget(self.debug_label)
 
-        # Data history
         self.time_history = np.linspace(
             -(HISTORY_SIZE - 1) * UPDATE_PERIOD,
             0,
@@ -210,19 +202,17 @@ class MainWindow(QMainWindow):
         self.torque_history = np.zeros(HISTORY_SIZE, dtype=np.float32)
         self.phase1_history = np.zeros(HISTORY_SIZE, dtype=np.float32)
         self.phase2_history = np.zeros(HISTORY_SIZE, dtype=np.float32)
-        self.current_diff_history = np.zeros(HISTORY_SIZE, dtype=np.float32)
+        self.impedance_history = np.zeros(HISTORY_SIZE, dtype=np.float32)
+        self.admittance_history = np.zeros(HISTORY_SIZE, dtype=np.float32)
 
-        # Curves for first tab
-        self.curve1 = self.plot_graph1.plot(pen=pg.mkPen("#0078D7", width=2))
-        self.curve2 = self.plot_graph2.plot(pen=pg.mkPen("#2AD1A7", width=2))
-        self.curve3 = self.plot_graph3.plot(pen=pg.mkPen("#6113A1", width=2))
-        self.curve4 = self.plot_graph4.plot(pen=pg.mkPen("#B80F77", width=2))
+        self.angle_curve = self.angle_plot.plot(pen=pg.mkPen("#0078D7", width=2))
+        self.torque_curve = self.torque_plot.plot(pen=pg.mkPen("#2AD1A7", width=2))
+        self.phase1_curve = self.phase1_plot.plot(pen=pg.mkPen("#6113A1", width=2))
+        self.phase2_curve = self.phase2_plot.plot(pen=pg.mkPen("#B80F77", width=2))
 
-        # Curves for second tab
-        self.stats_curve1 = self.stats_plot1.plot(pen=pg.mkPen("#FF8800", width=2))
-        self.stats_curve2 = self.stats_plot2.plot(pen=pg.mkPen("#00AAFF", width=2))
+        self.impedance_curve = self.impedance_plot.plot(pen=pg.mkPen("#FF8800", width=2))
+        self.admittance_curve = self.admittance_plot.plot(pen=pg.mkPen("#00AAFF", width=2))
 
-        # Timer
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_plot)
 
@@ -233,35 +223,38 @@ class MainWindow(QMainWindow):
         torque = data[1]
         phase1 = data[2]
         phase2 = data[3]
+        impedance = data[4]
+        admittance = data[5]
 
         self.angle_history = np.roll(self.angle_history, -1)
         self.torque_history = np.roll(self.torque_history, -1)
         self.phase1_history = np.roll(self.phase1_history, -1)
         self.phase2_history = np.roll(self.phase2_history, -1)
-        self.current_diff_history = np.roll(self.current_diff_history, -1)
+        self.impedance_history = np.roll(self.impedance_history, -1)
+        self.admittance_history = np.roll(self.admittance_history, -1)
 
         self.angle_history[-1] = angle
         self.torque_history[-1] = torque
         self.phase1_history[-1] = phase1
         self.phase2_history[-1] = phase2
-        self.current_diff_history[-1] = phase1 - phase2
+        self.impedance_history[-1] = impedance
+        self.admittance_history[-1] = admittance
 
-        # First tab plots
-        self.curve1.setData(self.time_history, self.angle_history)
-        self.curve2.setData(self.time_history, self.torque_history)
-        self.curve3.setData(self.time_history, self.phase1_history)
-        self.curve4.setData(self.time_history, self.phase2_history)
+        self.angle_curve.setData(self.time_history, self.angle_history)
+        self.torque_curve.setData(self.time_history, self.torque_history)
+        self.phase1_curve.setData(self.time_history, self.phase1_history)
+        self.phase2_curve.setData(self.time_history, self.phase2_history)
 
-        # Second tab plots
-        self.stats_curve1.setData(self.angle_history, self.torque_history)
-        self.stats_curve2.setData(self.time_history, self.current_diff_history)
+        self.impedance_curve.setData(self.time_history, self.impedance_history)
+        self.admittance_curve.setData(self.time_history, self.admittance_history)
 
-        # Third tab text
         self.debug_label.setText(
             f"Angle: {angle:.3f} deg\n"
             f"Torque: {torque:.3f} Nm\n"
             f"Phase 1 current: {phase1:.3f} A\n"
-            f"Phase 2 current: {phase2:.3f} A"
+            f"Phase 2 current: {phase2:.3f} A\n"
+            f"Impedance: {impedance:.3f}\n"
+            f"Admittance: {admittance:.3f}"
         )
 
     def rec_meas(self, checked):
@@ -282,3 +275,4 @@ if __name__ == "__main__":
     window = MainWindow()
     window.resize(1200, 800)
     window.show()
+    sys.exit(app.exec())
