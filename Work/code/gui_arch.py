@@ -133,13 +133,19 @@ class MainWindow(QMainWindow):
         self.layout = pg.GraphicsLayoutWidget()
         self.setCentralWidget(self.layout)
 
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+
+
         #setting-up start-gui button 
 
         self.start_button = QPushButton("Start CAPT Motor recording measurements")
+        self.start_button.setCheckable(True)
         self.start_button.clicked.connect(self.rec_meas)
 
         self.layout.addWidget(self.start_button)
-        
+        self.layout.addWidget(self.central_widget)
+        self.
 
         self.plot_graph1 = self.layout.addPlot(row=0, col=0, title="Angle (deg)")
         self.plot_graph2 = self.layout.addPlot(row=0, col=1, title="Torque (Nm)")
