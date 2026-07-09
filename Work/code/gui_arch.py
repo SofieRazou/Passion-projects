@@ -95,7 +95,7 @@ from multiprocessing import shared_memory
 
 import pyqtgraph as pg
 from PyQt6 import QtCore
-from PyQt6.QtWidgets import QMainWindow, QApplication
+from PyQt6.QtWidgets import QMainWindow, QApplication, QPushButton
 
 
 NUM_SIGNALS = 4
@@ -133,6 +133,14 @@ class MainWindow(QMainWindow):
         self.layout = pg.GraphicsLayoutWidget()
         self.setCentralWidget(self.layout)
 
+        #setting-up start-gui button 
+
+        self.start_button = QPushButton("Start CAPT Motor recording measurements")
+        self.start_button.clicked.connect(self.rec_meas)
+
+        self.layout.addWidget(self.start_button)
+        
+
         self.plot_graph1 = self.layout.addPlot(row=0, col=0, title="Angle (deg)")
         self.plot_graph2 = self.layout.addPlot(row=0, col=1, title="Torque (Nm)")
         self.plot_graph3 = self.layout.addPlot(row=1, col=0, title="Current Phase 1 (A)")
@@ -146,7 +154,6 @@ class MainWindow(QMainWindow):
         ]
 
         for plot in self.plots:
-            plot.setBackground("w")
             plot.setLabel("left", "Value")
             plot.setLabel("bottom", "Time", units="s")
             plot.showGrid(x=True, y=True, alpha=0.3)
@@ -200,6 +207,20 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self.sm.close()
         event.accept()
+    
+    def start_end_trigs(self, checked):
+        if checked:
+            return "START"
+        else:
+            return "STOP"
+    def rec_meas(self, checked):
+        self.update_plot()
+        if self.start_end_trigs(checked)=="START":
+            self.update_plot()
+        else:
+            sys.exit()
+            print("CAPT Motor dashboard exiting...")
+
 
     def read_file(self, filename):
         with open(filename, "r") as f:
