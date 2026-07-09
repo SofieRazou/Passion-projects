@@ -94,9 +94,8 @@ import numpy as np
 from multiprocessing import shared_memory
 
 import pyqtgraph as pg
-from PyQt6 import QtCore
-from PyQt6.QtWidgets import QMainWindow, QApplication, QPushButton, QWidget, QVBoxLayout
-
+from PyQt6 import QtCore, QSize, QIcon, QStatusBar, QLabel 
+from PyQt6.QtWidgets import QMainWindow, QApplication, QPushButton, QWidget, QTabWidget, QVBoxLayout, QToolBar, QAction
 
 NUM_SIGNALS = 4
 HISTORY_SIZE = 300
@@ -106,6 +105,8 @@ MEM_NAME = "shared_mem"
 DTYPE = np.float32
 
 STYLES_FILE = "gui_styles.qss"
+PAGE_NAMES = ["Home", "Stats", "Debugging"]
+
 
 
 class MainWindow(QMainWindow):
@@ -135,6 +136,31 @@ class MainWindow(QMainWindow):
 
         self.main_layout = QVBoxLayout(self.central_widget)
 
+        #toolbar for action-control of the dashboard
+        self.tabs = QTabWidget()
+        self.setCentralWidget(self.tabs)
+
+        toolbar = QToolBar("Actions")
+        self.addToolBar(toolbar)
+
+        home_button = QAction(PAGE_NAMES[0], self)
+        home_button.setStatusTip("Home")
+        home_button.setIconSize(QSize(26,26))
+        home_button.triggered.connect(lambda: self.tabs.setCurrentIndex(0))
+
+        stats_button = QAction(PAGE_NAMES[1], self)
+        stats_button.setStatusTip("Stats")
+        stats_button.setIconSize(QSize(26,26))
+        stats_button.triggered.connect(lambda: self.tabs.setCurrentIndex(1))
+
+        debugging_button = QAction(PAGE_NAMES[2], self)
+        debugging_button.setStatusTip("Debugging")
+        debugging_button.setIconSize(QSize(26,26))
+        debugging_button.triggered.connect(lambda: self.tabs.setCurrentIndex(2))
+       
+
+        #page-container set-up 
+        self.pages = []
 
         #setting-up start-gui button 
 
@@ -177,9 +203,9 @@ class MainWindow(QMainWindow):
         self.phase2_history = np.zeros(HISTORY_SIZE, dtype=np.float32)
 
         self.curve1 = self.plot_graph1.plot(pen=pg.mkPen("#0078D7", width=2))
-        self.curve2 = self.plot_graph2.plot(pen=pg.mkPen("#E67E22", width=2))
-        self.curve3 = self.plot_graph3.plot(pen=pg.mkPen("#2ECC71", width=2))
-        self.curve4 = self.plot_graph4.plot(pen=pg.mkPen("#8E44AD", width=2))
+        self.curve2 = self.plot_graph2.plot(pen=pg.mkPen("#2AD1A7", width=2))
+        self.curve3 = self.plot_graph3.plot(pen=pg.mkPen("#6113A1", width=2))
+        self.curve4 = self.plot_graph4.plot(pen=pg.mkPen("#B80F77", width=2))
 
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_plot)
@@ -212,6 +238,14 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self.sm.close()
         event.accept()
+    def make_pages(self, page_names):
+        for i in range (len(page_names)):
+            self.pages[i] = QWidget()
+            self.main_layout.addWidget(QLabel(page_names[i]))
+            self.pages[i].setLayout(self.main_layout)
+        return self.pages
+
+
     
     def rec_meas(self, checked):
         if checked:
