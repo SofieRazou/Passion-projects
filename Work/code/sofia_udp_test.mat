@@ -1,0 +1,55 @@
+%%CAPT motor model for testing before deployment to dSpace 
+clear;
+
+Ts = 0.001; %sampling time in sec
+Td = Ts/2; %approx delay period for Pade ZOH approximation 
+
+Gc = tf([-Td/2 1], [Td/2 1]);
+Gd = c2d(Gc,Ts,'tustin');
+[num_d, den_d] = tfdata(Gd, 'v');
+
+
+%Plant model parameters 
+J_virtual = 0.002; %virtual inertia
+J_inherit = 0.0103; % actual mass moment of inertia of the motor's 
+J = J_virtual + J_inherit; % total rendered inertia of the motor's
+k = 0.1; %virtual stiffness
+b = 0.05;%virtual damping 
+theta_ref=0;
+omega_c = 62; %in rads/sec (natural median freq)
+omega_d = 2*pi*100;
+
+%Linear state-space model 
+A = [0 1; -k/J -b/J];
+B =[0; 1/J];
+C=[1 0];
+D=zeros();
+
+sys = ss(A,B,C,D);
+
+cm = ctrb(sys);
+obsm = obsv(sys);
+if rank(cm)==rank(A)
+    disp("Plant is controllable");
+else
+    disp("Plant is non-controllable");
+end
+
+if rank(obsm)==rank(A)
+    disp("Plant is observable");
+else
+    disp("Plant is non-observable");
+end
+eigs = eig(A);
+disp(eigs);
+
+figure;
+bode(sys);
+grid on;
+
+theme(gcf, "dark");
+saveas(gcf, "C:\Users\javot\Desktop\sofia_code\bode_plot.png");
+
+%writeouts for gui for stability analysis 
+[A,B,C,D] = ssdata(sys);
+save('plant_matrixes.mat','A','B','C', 'D');
