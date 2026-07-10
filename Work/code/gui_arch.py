@@ -1,4 +1,9 @@
-        home_action = QAction("Measurements", self)
+
+Unrecognized function or variable 'theme'.
+
+Error in sofia_udp_test (line 48)
+gcf = theme("dark");
+ 
 import sys
 import ast
 from pathlib import Path
