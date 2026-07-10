@@ -94,11 +94,15 @@ from multiprocessing import shared_memory
 
 import pyqtgraph as pg
 from PyQt6 import QtCore
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QPixmap
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QWidget,
     QTabWidget, QVBoxLayout, QToolBar, QLabel
 )
+
+from matplotlib.figure import Figure 
+import scipy.io as sio
+import control as ct 
 
 NUM_SIGNALS = 6
 HISTORY_SIZE = 300
@@ -107,6 +111,7 @@ UPDATE_PERIOD = 0.05
 MEM_NAME = "shared_mem"
 DTYPE = np.float32
 
+MATNAME = "stability_plots.csv"
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -127,14 +132,17 @@ class MainWindow(QMainWindow):
 
         self.home_page = QWidget()
         self.stats_page = QWidget()
+        self.stability_page = QWidget()
         self.debug_page = QWidget()
 
         self.tabs.addTab(self.home_page, "Measurements")
         self.tabs.addTab(self.stats_page, "Impedance / Admittance")
+        self.tabs.addTab(self.stability_page, "Stability Analysis")
         self.tabs.addTab(self.debug_page, "Debugging")
 
         self.home_layout = QVBoxLayout(self.home_page)
         self.stats_layout = QVBoxLayout(self.stats_page)
+        self.stability_layout = QVBoxLayout(self.stability_page)
         self.debug_layout = QVBoxLayout(self.debug_page)
 
         toolbar = QToolBar("Actions")
@@ -148,8 +156,12 @@ class MainWindow(QMainWindow):
         stats_action.triggered.connect(lambda: self.tabs.setCurrentIndex(1))
         toolbar.addAction(stats_action)
 
+        stability_action = QAction("Stability Analysis", self)
+        stability_action.triggered.connect(lambda: self.tabs.setCurrentIndex(2))
+        toolbar.addAction(stability_action)
+
         debug_action = QAction("Debugging", self)
-        debug_action.triggered.connect(lambda: self.tabs.setCurrentIndex(2))
+        debug_action.triggered.connect(lambda: self.tabs.setCurrentIndex(3))
         toolbar.addAction(debug_action)
 
         self.start_button = QPushButton("Start CAPT Motor recording measurements")
@@ -166,12 +178,19 @@ class MainWindow(QMainWindow):
         self.phase1_plot = self.graph_layout.addPlot(row=1, col=0, title="Current Phase 1 (A)")
         self.phase2_plot = self.graph_layout.addPlot(row=1, col=1, title="Current Phase 2 (A)")
 
+
         # Second tab: impedance and admittance
         self.stats_graph_layout = pg.GraphicsLayoutWidget()
         self.stats_layout.addWidget(self.stats_graph_layout)
 
         self.impedance_plot = self.stats_graph_layout.addPlot(row=0, col=0, title="Impedance")
         self.admittance_plot = self.stats_graph_layout.addPlot(row=1, col=0, title="Admittance")
+
+        self.stability_plot = QLabel()
+        pixmap = QPixmap(MATNAME)
+        self.stability_plot.setPixmap(pixmap)
+        self.stability_layout.addWidget(self.stability_plot)
+        self.stability_page.setLayout(self.stability_layout)
 
         all_plots = [
             self.angle_plot,
@@ -205,7 +224,7 @@ class MainWindow(QMainWindow):
         self.impedance_history = np.zeros(HISTORY_SIZE, dtype=np.float32)
         self.admittance_history = np.zeros(HISTORY_SIZE, dtype=np.float32)
 
-        self.angle_curve = self.angle_plot.plot(pen=pg.mkPen("#0078D7", width=2))
+        self.angle_curve = self.angle_plot.plot(pen=pg.mkPen("#188BE9", width=2))
         self.torque_curve = self.torque_plot.plot(pen=pg.mkPen("#2AD1A7", width=2))
         self.phase1_curve = self.phase1_plot.plot(pen=pg.mkPen("#6113A1", width=2))
         self.phase2_curve = self.phase2_plot.plot(pen=pg.mkPen("#B80F77", width=2))
@@ -213,8 +232,27 @@ class MainWindow(QMainWindow):
         self.impedance_curve = self.impedance_plot.plot(pen=pg.mkPen("#FF8800", width=2))
         self.admittance_curve = self.admittance_plot.plot(pen=pg.mkPen("#00AAFF", width=2))
 
+
+        #setting up timer 
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_plot)
+
+    def read_csv(self,filename):
+        mat_data = sio.loadmat('plant_matrixes.mat')
+        A = mat_data['A']
+        B = mat_data['B']
+        C = mat_data['C']
+        D = mat_data['D']
+
+        plant = ct.ss(A,B,C,D)
+        return plant
+
+    def import_matlab_graphs(self, matfilename):
+        plant = self.read_csv(matfilename)
+        bodePlot = Figure(figsize=(20,20), dpi=100)
+        ct.bode_plot(plant, dB=True, deg=True, margins= True)
+        bodePlot.savefig("bode_plot.png")
+
 
     def update_plot(self):
         data = self.mem_rec_data.copy()
