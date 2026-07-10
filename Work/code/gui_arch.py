@@ -102,7 +102,7 @@ from PyQt6.QtWidgets import (
 
 from matplotlib.figure import Figure 
 import scipy.io as sio
-import control as ct 
+import pandas as pd 
 
 NUM_SIGNALS = 6
 HISTORY_SIZE = 300
@@ -112,6 +112,7 @@ MEM_NAME = "shared_mem"
 DTYPE = np.float32
 
 MATNAME = "stability_plots.csv"
+BODE_FILE = "bode_plot.png"
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -187,10 +188,9 @@ class MainWindow(QMainWindow):
         self.admittance_plot = self.stats_graph_layout.addPlot(row=1, col=0, title="Admittance")
 
         self.stability_plot = QLabel()
-        pixmap = QPixmap(MATNAME)
+        pixmap = QPixmap(BODE_FILE)
         self.stability_plot.setPixmap(pixmap)
         self.stability_layout.addWidget(self.stability_plot)
-        self.stability_page.setLayout(self.stability_layout)
 
         all_plots = [
             self.angle_plot,
@@ -238,21 +238,13 @@ class MainWindow(QMainWindow):
         self.timer.timeout.connect(self.update_plot)
 
     def read_csv(self,filename):
-        mat_data = sio.loadmat('plant_matrixes.mat')
-        A = mat_data['A']
-        B = mat_data['B']
-        C = mat_data['C']
-        D = mat_data['D']
+        file = pd.read_csv(filename)
 
-        plant = ct.ss(A,B,C,D)
-        return plant
-
-    def import_matlab_graphs(self, matfilename):
+    def import_matlab_graphs(self, matfilename, plotfile):
         plant = self.read_csv(matfilename)
         bodePlot = Figure(figsize=(20,20), dpi=100)
         ct.bode_plot(plant, dB=True, deg=True, margins= True)
-        bodePlot.savefig("bode_plot.png")
-
+        bodePlot.savefile(plotfile)
 
     def update_plot(self):
         data = self.mem_rec_data.copy()
