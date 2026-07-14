@@ -1,0 +1,5 @@
+function e_gen = fcn(e_n)
+
+persistent e_gen;
+e_0 = 0.01;
+e_gen = e_n-e_gen;
