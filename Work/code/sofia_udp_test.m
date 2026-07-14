@@ -19,7 +19,7 @@ theta_ref=0;
 omega_c = 62; %in rads/sec (natural median freq)
 omega_d = 2*pi*100;
 
-%Linear state-space model 
+%Linear Motor state-space model 
 A = [0 1; -k/J -b/J];
 B =[0; 1/J];
 C=[1 0];
@@ -51,5 +51,40 @@ saveas(gcf, "C:\Users\javot\Desktop\sofia_code\bode_plot.png");
 %writeouts for gui for stability analysis 
 [A,B,C,D] = ssdata(sys);
 save('plant_matrixes.mat','A','B','C', 'D');
+
+esp_0 = 0.01; 
+
+%Linear Human state-space model parameters
+%-- init --
+Kh =0;
+Mh = 1;
+Bh = 0;
+%--state-space --
+Ah = [0 1; -Kh/Mh -Bh/Mh];
+Bh =[0; 1/J];
+Ch=[1 0];
+Dh=zeros();
+
+human = ss(Ah,Bh,Ch,Dh);
+cm_human = ctrb(human);
+obsm_human = obsv(human);
+if rank(cm_human)==rank(Ah)
+    disp("Human is controllable");
+else
+    disp("Human is non-controllable");
+end
+
+if rank(obsm_human)==rank(Ah)
+    disp("Human is observable");
+else
+    disp("Plant is non-observable");
+end
+eigs_human = eig(Ah);
+disp(eigs_human);
+
+figure;
+bode(human);
+grid on;
+saveas(gcf, "C:\Users\javot\Desktop\sofia_code\human_bode_plot.png");
 
 
