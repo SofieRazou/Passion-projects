@@ -1,6 +1,26 @@
-Error using sofia_udp_test (line 133)
-Invalid setting in StateSpace block 'Human_state_space' for parameter
-'A'
+[AH, BH, CH, DH] = ssdata(human);
+
+% Ensure ordinary numeric matrices
+AH = double(AH);
+BH = double(BH);
+CH = double(CH);
+DH = double(DH);
+
+% Make variables available to Simulink
+assignin('base', 'AH', AH);
+assignin('base', 'BH', BH);
+assignin('base', 'CH', CH);
+assignin('base', 'DH', DH);
+
+humanBlock = 'controller1_SR/Human_state_space';
+
+set_param(humanBlock, ...
+    'A', 'AH', ...
+    'B', 'BH', ...
+    'C', 'CH', ...
+    'D', 'DH');
+
+set_param('controller1_SR', 'SimulationCommand', 'update');
 
 
 %%CAPT motor model for testing before deployment to dSpace 
