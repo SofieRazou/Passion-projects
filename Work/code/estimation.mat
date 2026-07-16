@@ -1,0 +1,72 @@
+%% Load signals exported from Simulink
+t = theta_out.Time(:);
+theta = theta_out.Data(:);
+tau_h = tau_out.Data(:);
+
+%% Remove initial transient
+idx = t > 2;
+
+t = t(idx);
+theta = theta(idx);
+tau_h = tau_h(idx);
+
+%% Remove offsets
+theta = theta - mean(theta);
+tau_h = tau_h - mean(tau_h);
+
+%% Sampling frequency
+Fs = 1 / mean(diff(t));
+
+%% Low-pass filter
+fc = 10;
+
+if fc >= Fs/2
+    error('Filter cutoff must be below the Nyquist frequency.');
+end
+
+[b, a] = butter(4, fc/(Fs/2), 'low');
+
+theta_f = filtfilt(b, a, theta);
+
+%% Derivatives
+theta_dot = gradient(theta_f, t);
+theta_ddot = gradient(theta_dot, t);
+
+theta_dot = filtfilt(b, a, theta_dot);
+theta_ddot = filtfilt(b, a, theta_ddot);
+
+%% Parameter estimation
+Phi = [theta_ddot, theta_dot, theta_f];
+
+p = Phi \ tau_h;
+
+Mh = p(1);
+Bh = p(2);
+Kh = p(3);
+
+fprintf('Mh = %.6f kg*m^2\n', Mh);
+fprintf('Bh = %.6f N*m*s/rad\n', Bh);
+fprintf('Kh = %.6f N*m/rad\n', Kh);
+
+%% Validation
+tau_pred = Phi * p;
+
+fit_percent = 100 * ...
+    (1 - norm(tau_h - tau_pred) / norm(tau_h - mean(tau_h)));
+
+fprintf('Fit = %.2f %%\n', fit_percent);
+
+figure;
+plot(t, tau_h, 'DisplayName', 'Measured torque');
+hold on;
+plot(t, tau_pred, '--', 'DisplayName', 'Predicted torque');
+xlabel('Time [s]');
+ylabel('Torque [Nm]');
+legend;
+grid on;
+
+%% Human transfer function
+Gh = tf(1, [Mh Bh Kh]);
+
+disp('Estimated human transfer function:');
+Gh
