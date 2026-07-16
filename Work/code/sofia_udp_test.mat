@@ -19,7 +19,7 @@ theta_ref=0;
 omega_c = 62; %in rads/sec (natural median freq)
 omega_d = 2*pi*100;
 
-%Linear state-space model 
+%Linear Motor state-space model 
 A = [0 1; -k/J -b/J];
 B =[0; 1/J];
 C=[1 0];
@@ -46,10 +46,53 @@ disp(eigs);
 figure;
 bode(sys);
 grid on;
-
-theme(gcf, "dark");
 saveas(gcf, "C:\Users\javot\Desktop\sofia_code\bode_plot.png");
 
 %writeouts for gui for stability analysis 
 [A,B,C,D] = ssdata(sys);
 save('plant_matrixes.mat','A','B','C', 'D');
+
+esp_0 = 0.01; 
+
+%Linear Human state-space model parameters
+%-- init --
+kh =1;
+Mh = 1;
+bh = 1;
+
+
+%Human impedance transfer function for human-device system charactiri
+%--state-space --
+Ah = [0 1; -kh/Mh -bh/Mh];
+Bh =[0; 1/Mh];
+Ch=[1 0];
+Dh=zeros();
+human_0 = ss(Ah,Bh,Ch,Dh);
+cm_human_0 = ctrb(human_0);
+obsm_human_0 = obsv(human_0);
+if rank(cm_human_0)==rank(Ah)
+    disp("Init Human is controllable");
+else
+    disp("Init Human is non-controllable");
+end
+
+if rank(obsm_human_0)==rank(Ah)
+    disp("Init Human is observable");
+else
+    disp("Init Plant is non-observable");
+end
+eigs_human_0 = eig(Ah);
+disp(eigs_human_0);
+
+figure;
+bode(human_0);
+grid on;
+saveas(gcf, "C:\Users\javot\Desktop\sofia_code\zero_human_bode_plot.png");
+
+Th = 0.1;
+%Estimation of human operator's parameters
+data = iddata(angle, torque, Th);
+data.InputName = 'Torque (Nm)';
+data.OutputName = 'Angle (deg)';
+human = greyest(data, human_0);
+
