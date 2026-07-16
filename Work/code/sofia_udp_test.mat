@@ -1,3 +1,13 @@
+
+Check for missing argument or incorrect argument data type in call to
+function 'greyest'.
+
+Error in iddata/greyest (line 40)
+   throw(E)
+
+Error in sofia_udp_test (line 111)
+human = greyest(data, human_0);
+
 % Estimation of human operator parameters
 % Fetch values from Simulink
 
