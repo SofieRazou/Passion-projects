@@ -91,9 +91,11 @@ grid on;
 Th = 0.1;
 %Estimation of human operator's parameters
 %fetch values from simulink to common workspace 
+ 
 simOut = sim('controller1_SR'); 
-angle = simOut.angle.Data;
-torque = simOut.torque.Data;
+t = simOut.Time; %simulation time logs
+angle = simOut.angle.getdatasamples;
+torque = simOut.torque.getdatasamples;
 
 data = iddata(angle, torque, Th);
 data.InputName = 'Torque (Nm)';
