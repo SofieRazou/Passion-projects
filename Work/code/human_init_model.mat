@@ -1,0 +1,15 @@
+function [A,B,C,D,K,x0] = human_init_model(Mh, bh, kh)
+
+if Mh<=0 
+    error("Mass must be non-zero");
+end
+
+A = [0  1; -kh/Mh -bh/Mh];
+B = [0; 1/Mh];
+C = [1 0];
+D = zeros();
+
+K = 0; % zero external disturbances 
+
+x0 = [0;0];
+end 
