@@ -1,28 +1,3 @@
-[AH, BH, CH, DH] = ssdata(human);
-
-% Ensure ordinary numeric matrices
-AH = double(AH);
-BH = double(BH);
-CH = double(CH);
-DH = double(DH);
-
-% Make variables available to Simulink
-assignin('base', 'AH', AH);
-assignin('base', 'BH', BH);
-assignin('base', 'CH', CH);
-assignin('base', 'DH', DH);
-
-humanBlock = 'controller1_SR/Human_state_space';
-
-set_param(humanBlock, ...
-    'A', 'AH', ...
-    'B', 'BH', ...
-    'C', 'CH', ...
-    'D', 'DH');
-
-set_param('controller1_SR', 'SimulationCommand', 'update');
-
-
 %%CAPT motor model for testing before deployment to dSpace 
 clear;
 
@@ -116,7 +91,10 @@ grid on;
 Th = 0.1;
 %Estimation of human operator's parameters
 %fetch values from simulink to common workspace 
- 
+AH = [0 1; -kh/Mh -bh/Mh];
+BH = [0; 1/Mh];
+CH = [0 1];
+DH = zeros();
 simOut = sim('controller1_SR', ...
     'ReturnWorkspaceOutputs', 'on'); 
 %as timeseries
@@ -146,23 +124,32 @@ human_zero = idgrey(...
     'c');
 
 human = greyest(data, human_zero);
-AH = [0 1; -kh/Mh -bh/Mh];
-BH = [0; 1/Mh];
-CH = [0 1];
-DH = zeros();
-
 
 %parameter update 
-set_param('controller1_SR/Human_state_space','AH',AH);
-set_param('controller1_SR/Human_state_space','BH',BH);
-set_param('controller1_SR/Human_state_space','CH',CH);
-set_param('controller1_SR/Human_state_space','DH',DH);
-
 [AH, BH, CH, DH] = ssdata(human);
-set_param('controller1_SR/Human_state_space','AH',AH);
-set_param('controller1_SR/Human_state_space','BH',BH);
-set_param('controller1_SR/Human_state_space','CH',CH);
-set_param('controller1_SR/Human_state_space','DH',DH);
+
+% Ensure ordinary  matrices
+AH = double(AH);
+BH = double(BH);
+CH = double(CH);
+DH = double(DH);
+
+% Make variables available to Simulink
+assignin('base', 'AH', AH);
+assignin('base', 'BH', BH);
+assignin('base', 'CH', CH);
+assignin('base', 'DH', DH);
+
+humanBlock = 'controller1_SR/Human_state_space';
+
+set_param(humanBlock, ...
+    'A', 'AH', ...
+    'B', 'BH', ...
+    'C', 'CH', ...
+    'D', 'DH');
+
+set_param('controller1_SR', 'SimulationCommand', 'update');
+
 
 %check human operator's estimated model stability and observability
 cm_human = ctrb(human);
@@ -185,3 +172,4 @@ figure;
 bode(human);
 grid on;
 %saveas(gcf, "C:\Users\javot\Desktop\sofia_code\human_bode_plot.png");
+
