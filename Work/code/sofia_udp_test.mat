@@ -60,7 +60,6 @@ kh =1;
 Mh = 1;
 bh = 1;
 
-
 %Human impedance transfer function for human-device system charactiri
 %--state-space --
 Ah = [0 1; -kh/Mh -bh/Mh];
@@ -79,7 +78,7 @@ end
 if rank(obsm_human_0)==rank(Ah)
     disp("Init Human is observable");
 else
-    disp("Init Plant is non-observable");
+    disp("Init Human is non-observable");
 end
 eigs_human_0 = eig(Ah);
 disp(eigs_human_0);
@@ -87,12 +86,46 @@ disp(eigs_human_0);
 figure;
 bode(human_0);
 grid on;
-saveas(gcf, "C:\Users\javot\Desktop\sofia_code\zero_human_bode_plot.png");
+%saveas(gcf, "C:\Users\javot\Desktop\sofia_code\zero_human_bode_plot.png");
 
 Th = 0.1;
 %Estimation of human operator's parameters
+%fetch values from simulink to common workspace 
+simOut = sim('controller1_SR'); 
+angle = simOut.angle.Data;
+torque = simOut.torque.Data;
+
 data = iddata(angle, torque, Th);
 data.InputName = 'Torque (Nm)';
 data.OutputName = 'Angle (deg)';
-human = greyest(data, human_0);
 
+human = greyest(data, human_0);
+[AH, BH, CH, DH] = human.Parameters();
+
+%parameter update 
+set_param('controller1_SR/Human_state_space','AH',AH);
+set_param('controller1_SR/Human_state_space','BH',BH);
+set_param('controller1_SR/Human_state_space','CH',CH);
+set_param('controller1_SR/Human_state_space','DH',DH);
+
+%check human operator's estimated model stability and observability
+cm_human = ctrb(human);
+obsm_human = obsv(human);
+if rank(cm_human)==rank(AH)
+    disp("Init Human is controllable");
+else
+    disp("Init Human is non-controllable");
+end
+
+if rank(obsm_human)==rank(AH)
+    disp(" Human is observable");
+else
+    disp("Human is non-observable");
+end
+eigs_human = eig(AH);
+disp(eigs_human);
+
+figure;
+bode(human);
+grid on;
+%saveas(gcf, "C:\Users\javot\Desktop\sofia_code\human_bode_plot.png");
