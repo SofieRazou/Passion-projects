@@ -1,3 +1,8 @@
+Error using sofia_udp_test (line 133)
+Invalid setting in StateSpace block 'Human_state_space' for parameter
+'A'
+
+
 %%CAPT motor model for testing before deployment to dSpace 
 clear;
 
