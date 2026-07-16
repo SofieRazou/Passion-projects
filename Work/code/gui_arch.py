@@ -304,7 +304,6 @@ from PyQt6.QtWidgets import (
     QApplication,
     QDoubleSpinBox,
     QGridLayout,
-    QHBoxLayout,
     QLabel,
     QMainWindow,
     QPushButton,
@@ -314,6 +313,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+
+# ============================================================
+# Global configuration
+# ============================================================
 
 NUM_SIGNALS = 6
 HISTORY_SIZE = 300
@@ -326,9 +329,826 @@ MATNAME = "stability_plots.csv"
 BODE_FILE = "bode_plot.png"
 
 
-self.animation_timer = QtCore.QTimer(self)
-self.animation_timer.timeout.connect(self.advance_animation)
-self.animation_timer.start(30)
+# ============================================================
+# Animated rotational spring visualization
+# ============================================================
+
+class RotationalSpringWidget(QWidget):
+    """
+    Visualize two asymmetric rotational springs around a wheel.
+
+    Positive side:
+        tau = -kappa_positive * (error - dead_zone)
+
+    Negative side:
+        tau = -kappa_negative * (error + dead_zone)
+
+    Inside the dead zone:
+        tau = 0
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        # Wheel state
+        self.angle_deg = 0.0
+        self.previous_angle_deg = 0.0
+        self.reference_deg = 0.0
+
+        # Spring parameters
+        self.kappa_positive = 1.0
+        self.kappa_negative = 2.0
+
+        # A value of 5 degrees means a total dead zone of 10 degrees.
+        self.dead_zone_half_width_deg = 5.0
+
+        # Visual animation state
+        self.animation_phase = 0.0
+        self.visual_velocity = 0.0
+        self.bounce_amplitude = 0.0
+
+        self.setMinimumHeight(520)
+
+        # Independent animation timer
+        self.animation_timer = QtCore.QTimer(self)
+        self.animation_timer.timeout.connect(
+            self.advance_animation
+        )
+        self.animation_timer.start(30)
+
+    # --------------------------------------------------------
+    # Public setters
+    # --------------------------------------------------------
+
+    def set_angle(self, angle_deg: float) -> None:
+        new_angle = float(angle_deg)
+
+        delta_angle = new_angle - self.angle_deg
+
+        self.previous_angle_deg = self.angle_deg
+        self.angle_deg = new_angle
+
+        # Use wheel movement to excite the visual spring bounce.
+        self.visual_velocity = delta_angle
+
+        self.bounce_amplitude = min(
+            self.bounce_amplitude + abs(delta_angle) * 0.8,
+            14.0,
+        )
+
+        self.update()
+
+    def set_reference(self, reference_deg: float) -> None:
+        self.reference_deg = float(reference_deg)
+        self.update()
+
+    def set_kappa_positive(self, value: float) -> None:
+        self.kappa_positive = max(0.0, float(value))
+        self.update()
+
+    def set_kappa_negative(self, value: float) -> None:
+        self.kappa_negative = max(0.0, float(value))
+        self.update()
+
+    def set_dead_zone(self, half_width_deg: float) -> None:
+        self.dead_zone_half_width_deg = max(
+            0.0,
+            float(half_width_deg),
+        )
+        self.update()
+
+    # --------------------------------------------------------
+    # Spring dynamics used by visualization
+    # --------------------------------------------------------
+
+    def advance_animation(self) -> None:
+        """
+        Advance the visual oscillation and gradually let it settle.
+        """
+        phase_speed = (
+            0.16
+            + min(abs(self.visual_velocity) * 0.05, 0.4)
+        )
+
+        self.animation_phase += phase_speed
+
+        if self.animation_phase > 2.0 * math.pi:
+            self.animation_phase -= 2.0 * math.pi
+
+        self.visual_velocity *= 0.88
+        self.bounce_amplitude *= 0.93
+
+        if self.bounce_amplitude < 0.01:
+            self.bounce_amplitude = 0.0
+
+        self.update()
+
+    def angle_error_deg(self) -> float:
+        return self.angle_deg - self.reference_deg
+
+    def active_region(self) -> str:
+        error = self.angle_error_deg()
+        dead_zone = self.dead_zone_half_width_deg
+
+        if error > dead_zone:
+            return "Positive spring"
+
+        if error < -dead_zone:
+            return "Negative spring"
+
+        return "Dead zone"
+
+    def positive_activation(self) -> float:
+        error = self.angle_error_deg()
+        dead_zone = self.dead_zone_half_width_deg
+
+        if error <= dead_zone:
+            return 0.0
+
+        return min(
+            (error - dead_zone) / 45.0,
+            1.0,
+        )
+
+    def negative_activation(self) -> float:
+        error = self.angle_error_deg()
+        dead_zone = self.dead_zone_half_width_deg
+
+        if error >= -dead_zone:
+            return 0.0
+
+        return min(
+            (-error - dead_zone) / 45.0,
+            1.0,
+        )
+
+    def spring_torque(self) -> float:
+        """
+        Calculate continuous asymmetric spring torque.
+
+        Torque begins at zero at each dead-zone boundary.
+        """
+        error_deg = self.angle_error_deg()
+        dead_zone_deg = self.dead_zone_half_width_deg
+
+        if error_deg > dead_zone_deg:
+            effective_error_deg = (
+                error_deg - dead_zone_deg
+            )
+
+            effective_error_rad = math.radians(
+                effective_error_deg
+            )
+
+            return (
+                -self.kappa_positive
+                * effective_error_rad
+            )
+
+        if error_deg < -dead_zone_deg:
+            effective_error_deg = (
+                error_deg + dead_zone_deg
+            )
+
+            effective_error_rad = math.radians(
+                effective_error_deg
+            )
+
+            return (
+                -self.kappa_negative
+                * effective_error_rad
+            )
+
+        return 0.0
+
+    # --------------------------------------------------------
+    # Main painting method
+    # --------------------------------------------------------
+
+    def paintEvent(self, event) -> None:
+        del event
+
+        painter = QPainter(self)
+
+        painter.setRenderHint(
+            QPainter.RenderHint.Antialiasing
+        )
+
+        width = self.width()
+        height = self.height()
+
+        center = QPointF(
+            width * 0.54,
+            height * 0.58,
+        )
+
+        wheel_radius = min(width, height) * 0.21
+        spring_radius = wheel_radius * 1.38
+
+        wheel_angle_rad = math.radians(
+            self.angle_error_deg()
+        )
+
+        self.draw_dead_zone(
+            painter,
+            center,
+            spring_radius,
+        )
+
+        self.draw_positive_spring(
+            painter,
+            center,
+            spring_radius,
+        )
+
+        self.draw_negative_spring(
+            painter,
+            center,
+            spring_radius,
+        )
+
+        self.draw_reference_marker(
+            painter,
+            center,
+            wheel_radius,
+        )
+
+        self.draw_wheel(
+            painter,
+            center,
+            wheel_radius,
+            wheel_angle_rad,
+        )
+
+        self.draw_torque_arrow(
+            painter,
+            center,
+            wheel_radius * 0.72,
+            self.spring_torque(),
+        )
+
+        self.draw_information(painter)
+
+    # --------------------------------------------------------
+    # Information panel
+    # --------------------------------------------------------
+
+    def draw_information(
+        self,
+        painter: QPainter,
+    ) -> None:
+        painter.setPen(
+            QColor(35, 35, 35)
+        )
+
+        information = [
+            f"Measured angle: {self.angle_deg:.2f} deg",
+            f"Reference angle: {self.reference_deg:.2f} deg",
+            f"Angle error: {self.angle_error_deg():.2f} deg",
+            (
+                "Dead zone: "
+                f"±{self.dead_zone_half_width_deg:.2f} deg"
+            ),
+            (
+                "Positive kappa: "
+                f"{self.kappa_positive:.3f} Nm/rad"
+            ),
+            (
+                "Negative kappa: "
+                f"{self.kappa_negative:.3f} Nm/rad"
+            ),
+            f"Active region: {self.active_region()}",
+            (
+                "Calculated virtual torque: "
+                f"{self.spring_torque():.4f} Nm"
+            ),
+        ]
+
+        y_position = 30
+
+        for line in information:
+            painter.drawText(
+                20,
+                y_position,
+                line,
+            )
+
+            y_position += 25
+
+    # --------------------------------------------------------
+    # Wheel drawing
+    # --------------------------------------------------------
+
+    def draw_wheel(
+        self,
+        painter: QPainter,
+        center: QPointF,
+        radius: float,
+        angle_rad: float,
+    ) -> None:
+        painter.setBrush(
+            Qt.BrushStyle.NoBrush
+        )
+
+        painter.setPen(
+            QPen(
+                QColor(45, 55, 65),
+                12,
+            )
+        )
+
+        painter.drawEllipse(
+            center,
+            radius,
+            radius,
+        )
+
+        hub_radius = radius * 0.17
+
+        painter.setPen(
+            QPen(
+                QColor(65, 75, 85),
+                5,
+            )
+        )
+
+        painter.setBrush(
+            QColor(180, 185, 190)
+        )
+
+        painter.drawEllipse(
+            center,
+            hub_radius,
+            hub_radius,
+        )
+
+        painter.setPen(
+            QPen(
+                QColor(65, 75, 85),
+                7,
+            )
+        )
+
+        spoke_angles = (
+            -math.pi / 2,
+            math.pi / 6,
+            5 * math.pi / 6,
+        )
+
+        for base_angle in spoke_angles:
+            current_angle = (
+                base_angle + angle_rad
+            )
+
+            spoke_end = QPointF(
+                center.x()
+                + radius
+                * 0.82
+                * math.cos(current_angle),
+
+                center.y()
+                + radius
+                * 0.82
+                * math.sin(current_angle),
+            )
+
+            painter.drawLine(
+                center,
+                spoke_end,
+            )
+
+        # Wheel angle indicator
+        indicator_angle = (
+            -math.pi / 2 + angle_rad
+        )
+
+        indicator_start = QPointF(
+            center.x()
+            + radius
+            * 0.78
+            * math.cos(indicator_angle),
+
+            center.y()
+            + radius
+            * 0.78
+            * math.sin(indicator_angle),
+        )
+
+        indicator_end = QPointF(
+            center.x()
+            + radius
+            * 1.06
+            * math.cos(indicator_angle),
+
+            center.y()
+            + radius
+            * 1.06
+            * math.sin(indicator_angle),
+        )
+
+        painter.setPen(
+            QPen(
+                QColor(25, 110, 220),
+                8,
+            )
+        )
+
+        painter.drawLine(
+            indicator_start,
+            indicator_end,
+        )
+
+    # --------------------------------------------------------
+    # Reference and dead-zone drawing
+    # --------------------------------------------------------
+
+    def draw_reference_marker(
+        self,
+        painter: QPainter,
+        center: QPointF,
+        wheel_radius: float,
+    ) -> None:
+        painter.setPen(
+            QPen(
+                QColor(30, 30, 30),
+                3,
+            )
+        )
+
+        marker_start = QPointF(
+            center.x(),
+            center.y()
+            - wheel_radius * 1.08,
+        )
+
+        marker_end = QPointF(
+            center.x(),
+            center.y()
+            - wheel_radius * 1.30,
+        )
+
+        painter.drawLine(
+            marker_start,
+            marker_end,
+        )
+
+        painter.drawText(
+            int(center.x() - 32),
+            int(
+                center.y()
+                - wheel_radius * 1.38
+            ),
+            "Reference",
+        )
+
+    def draw_dead_zone(
+        self,
+        painter: QPainter,
+        center: QPointF,
+        radius: float,
+    ) -> None:
+        dead_zone_pen = QPen(
+            QColor(145, 145, 145),
+            18,
+        )
+
+        dead_zone_pen.setCapStyle(
+            Qt.PenCapStyle.RoundCap
+        )
+
+        painter.setPen(dead_zone_pen)
+        painter.setBrush(
+            Qt.BrushStyle.NoBrush
+        )
+
+        rectangle = QtCore.QRectF(
+            center.x() - radius,
+            center.y() - radius,
+            2 * radius,
+            2 * radius,
+        )
+
+        start_angle_deg = (
+            90.0
+            - self.dead_zone_half_width_deg
+        )
+
+        span_angle_deg = (
+            2.0
+            * self.dead_zone_half_width_deg
+        )
+
+        painter.drawArc(
+            rectangle,
+            int(start_angle_deg * 16),
+            int(span_angle_deg * 16),
+        )
+
+        painter.setPen(
+            QColor(90, 90, 90)
+        )
+
+        painter.drawText(
+            int(center.x() - 42),
+            int(center.y() - radius - 25),
+            "Dead zone",
+        )
+
+    # --------------------------------------------------------
+    # Positive and negative springs
+    # --------------------------------------------------------
+
+    def draw_positive_spring(
+        self,
+        painter: QPainter,
+        center: QPointF,
+        radius: float,
+    ) -> None:
+        activation = self.positive_activation()
+        active = activation > 0.0
+
+        dead_zone_angle_rad = math.radians(
+            self.dead_zone_half_width_deg
+        )
+
+        positive_displacement_rad = math.radians(
+            max(
+                0.0,
+                self.angle_error_deg()
+                - self.dead_zone_half_width_deg,
+            )
+        )
+
+        moving_angle = (
+            -math.pi / 2
+            + dead_zone_angle_rad
+            + positive_displacement_rad
+        )
+
+        fixed_angle = math.radians(25)
+
+        self.draw_animated_rotational_spring(
+            painter=painter,
+            center=center,
+            radius=radius,
+            moving_angle_rad=moving_angle,
+            fixed_angle_rad=fixed_angle,
+            base_coils=14,
+            activation=activation,
+            active=active,
+            animation_phase=self.animation_phase,
+            bounce_amplitude=self.bounce_amplitude,
+            label=(
+                f"kappa + = "
+                f"{self.kappa_positive:.2f}"
+            ),
+        )
+
+    def draw_negative_spring(
+        self,
+        painter: QPainter,
+        center: QPointF,
+        radius: float,
+    ) -> None:
+        activation = self.negative_activation()
+        active = activation > 0.0
+
+        dead_zone_angle_rad = math.radians(
+            self.dead_zone_half_width_deg
+        )
+
+        negative_displacement_rad = math.radians(
+            min(
+                0.0,
+                self.angle_error_deg()
+                + self.dead_zone_half_width_deg,
+            )
+        )
+
+        moving_angle = (
+            -math.pi / 2
+            - dead_zone_angle_rad
+            + negative_displacement_rad
+        )
+
+        fixed_angle = math.radians(-205)
+
+        self.draw_animated_rotational_spring(
+            painter=painter,
+            center=center,
+            radius=radius,
+            moving_angle_rad=moving_angle,
+            fixed_angle_rad=fixed_angle,
+            base_coils=14,
+            activation=activation,
+            active=active,
+            animation_phase=-self.animation_phase,
+            bounce_amplitude=self.bounce_amplitude,
+            label=(
+                f"kappa - = "
+                f"{self.kappa_negative:.2f}"
+            ),
+        )
+
+    @staticmethod
+    def draw_animated_rotational_spring(
+        painter: QPainter,
+        center: QPointF,
+        radius: float,
+        moving_angle_rad: float,
+        fixed_angle_rad: float,
+        base_coils: int,
+        activation: float,
+        active: bool,
+        animation_phase: float,
+        bounce_amplitude: float,
+        label: str,
+    ) -> None:
+        """
+        Draw an animated circumferential spring.
+
+        The spring:
+        - changes angular length;
+        - changes coil density;
+        - oscillates radially;
+        - bounces when the wheel moves.
+        """
+        if active:
+            spring_color = QColor(
+                210,
+                70,
+                50,
+            )
+
+            line_width = 5
+        else:
+            spring_color = QColor(
+                70,
+                100,
+                140,
+            )
+
+            line_width = 3
+
+        painter.setPen(
+            QPen(
+                spring_color,
+                line_width,
+            )
+        )
+
+        # More activation makes the spring visually denser.
+        coil_count = max(
+            7,
+            int(
+                base_coils
+                + activation * 7
+            ),
+        )
+
+        number_of_points = coil_count * 10
+
+        base_coil_amplitude = 8.0
+
+        active_bounce = (
+            bounce_amplitude
+            * (0.30 + 0.70 * activation)
+        )
+
+        points = []
+
+        for index in range(
+            number_of_points + 1
+        ):
+            ratio = (
+                index
+                / number_of_points
+            )
+
+            angle = (
+                moving_angle_rad
+                + ratio
+                * (
+                    fixed_angle_rad
+                    - moving_angle_rad
+                )
+            )
+
+            coil_wave = math.sin(
+                ratio
+                * coil_count
+                * 2.0
+                * math.pi
+                + animation_phase
+            )
+
+            whole_spring_bounce = math.sin(
+                animation_phase * 1.4
+                + ratio * math.pi
+            )
+
+            radial_displacement = (
+                base_coil_amplitude * coil_wave
+                + active_bounce
+                * whole_spring_bounce
+            )
+
+            current_radius = (
+                radius
+                + radial_displacement
+            )
+
+            point = QPointF(
+                center.x()
+                + current_radius
+                * math.cos(angle),
+
+                center.y()
+                + current_radius
+                * math.sin(angle),
+            )
+
+            points.append(point)
+
+        painter.drawPolyline(
+            QPolygonF(points)
+        )
+
+        # Label
+        label_angle = (
+            moving_angle_rad
+            + 0.60
+            * (
+                fixed_angle_rad
+                - moving_angle_rad
+            )
+        )
+
+        label_radius = radius + 44
+
+        label_position = QPointF(
+            center.x()
+            + label_radius
+            * math.cos(label_angle),
+
+            center.y()
+            + label_radius
+            * math.sin(label_angle),
+        )
+
+        painter.setPen(spring_color)
+
+        painter.drawText(
+            int(label_position.x() - 48),
+            int(label_position.y()),
+            label,
+        )
+
+    # --------------------------------------------------------
+    # Torque direction arrow
+    # --------------------------------------------------------
+
+    @staticmethod
+    def draw_torque_arrow(
+        painter: QPainter,
+        center: QPointF,
+        radius: float,
+        torque: float,
+    ) -> None:
+        if abs(torque) < 1e-8:
+            return
+
+        painter.setPen(
+            QPen(
+                QColor(210, 65, 45),
+                5,
+            )
+        )
+
+        rectangle = QtCore.QRectF(
+            center.x() - radius,
+            center.y() - radius,
+            2 * radius,
+            2 * radius,
+        )
+
+        if torque > 0:
+            start_angle_deg = 20
+            span_angle_deg = 230
+        else:
+            start_angle_deg = 160
+            span_angle_deg = -230
+
+        painter.drawArc(
+            rectangle,
+            int(start_angle_deg * 16),
+            int(span_angle_deg * 16),
+        )
+
+
+# ============================================================
+# Main GUI
+# ============================================================
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -405,20 +1225,25 @@ class MainWindow(QMainWindow):
 
         self.create_toolbar()
         self.create_measurement_page()
-        self.create_impedance_page()
+        self.create_stats_page()
         self.create_spring_page()
         self.create_stability_page()
         self.create_debug_page()
 
-        self.create_signal_histories()
-        self.create_plot_curves()
+        self.create_histories()
+        self.create_curves()
 
         self.timer = QtCore.QTimer(self)
+
         self.timer.timeout.connect(
             self.update_plot
         )
 
         self.check_bode_image()
+
+    # --------------------------------------------------------
+    # Toolbar
+    # --------------------------------------------------------
 
     def create_toolbar(self) -> None:
         toolbar = QToolBar("Actions")
@@ -438,12 +1263,14 @@ class MainWindow(QMainWindow):
             action.triggered.connect(
                 lambda checked=False,
                 index=tab_index:
-                self.tabs.setCurrentIndex(
-                    index
-                )
+                self.tabs.setCurrentIndex(index)
             )
 
             toolbar.addAction(action)
+
+    # --------------------------------------------------------
+    # Measurement tab
+    # --------------------------------------------------------
 
     def create_measurement_page(self) -> None:
         self.start_button = QPushButton(
@@ -500,7 +1327,11 @@ class MainWindow(QMainWindow):
             )
         )
 
-    def create_impedance_page(self) -> None:
+    # --------------------------------------------------------
+    # Impedance/admittance tab
+    # --------------------------------------------------------
+
+    def create_stats_page(self) -> None:
         self.stats_graph_layout = (
             pg.GraphicsLayoutWidget()
         )
@@ -525,16 +1356,20 @@ class MainWindow(QMainWindow):
             )
         )
 
+    # --------------------------------------------------------
+    # Rotational spring tab
+    # --------------------------------------------------------
+
     def create_spring_page(self) -> None:
-        title = QLabel(
-            "Asymmetric Rotational Spring Environment"
+        spring_title = QLabel(
+            "Animated Asymmetric Rotational Springs"
         )
 
-        title.setAlignment(
+        spring_title.setAlignment(
             Qt.AlignmentFlag.AlignCenter
         )
 
-        title.setStyleSheet(
+        spring_title.setStyleSheet(
             """
             QLabel {
                 font-size: 20px;
@@ -623,7 +1458,7 @@ class MainWindow(QMainWindow):
         controls_layout = QGridLayout()
 
         controls_layout.addWidget(
-            QLabel("Positive-side κ:"),
+            QLabel("Positive-side kappa:"),
             0,
             0,
         )
@@ -635,7 +1470,7 @@ class MainWindow(QMainWindow):
         )
 
         controls_layout.addWidget(
-            QLabel("Negative-side κ:"),
+            QLabel("Negative-side kappa:"),
             0,
             2,
         )
@@ -678,7 +1513,9 @@ class MainWindow(QMainWindow):
             4,
         )
 
-        self.spring_layout.addWidget(title)
+        self.spring_layout.addWidget(
+            spring_title
+        )
 
         self.spring_layout.addWidget(
             self.spring_widget,
@@ -708,6 +1545,10 @@ class MainWindow(QMainWindow):
         self.reference_button.clicked.connect(
             self.set_current_angle_as_reference
         )
+
+    # --------------------------------------------------------
+    # Stability tab
+    # --------------------------------------------------------
 
     def create_stability_page(self) -> None:
         self.stability_title = QLabel(
@@ -774,6 +1615,10 @@ class MainWindow(QMainWindow):
             """
         )
 
+    # --------------------------------------------------------
+    # Debugging tab
+    # --------------------------------------------------------
+
     def create_debug_page(self) -> None:
         self.debug_label = QLabel(
             "Debugging information will appear here."
@@ -788,7 +1633,11 @@ class MainWindow(QMainWindow):
             self.debug_label
         )
 
-    def create_signal_histories(self) -> None:
+    # --------------------------------------------------------
+    # Signal histories
+    # --------------------------------------------------------
+
+    def create_histories(self) -> None:
         self.time_history = np.linspace(
             -(HISTORY_SIZE - 1)
             * UPDATE_PERIOD,
@@ -827,7 +1676,11 @@ class MainWindow(QMainWindow):
             dtype=np.float32,
         )
 
-    def create_plot_curves(self) -> None:
+    # --------------------------------------------------------
+    # Plot curves
+    # --------------------------------------------------------
+
+    def create_curves(self) -> None:
         all_plots = [
             self.angle_plot,
             self.torque_plot,
@@ -909,6 +1762,10 @@ class MainWindow(QMainWindow):
             )
         )
 
+    # --------------------------------------------------------
+    # Utility methods
+    # --------------------------------------------------------
+
     def check_bode_image(self) -> None:
         if Path(BODE_FILE).exists():
             return
@@ -964,6 +1821,10 @@ class MainWindow(QMainWindow):
         plant = ct.ss(A, B, C, D)
 
         ct.bode_plot(plant)
+
+    # --------------------------------------------------------
+    # Real-time update
+    # --------------------------------------------------------
 
     def update_plot(self) -> None:
         data = self.mem_rec_data.copy()
@@ -1042,7 +1903,7 @@ class MainWindow(QMainWindow):
             self.admittance_history,
         )
 
-        # Update wheel and springs using the live angle.
+        # Update animated wheel and springs.
         self.spring_widget.set_angle(angle)
 
         virtual_torque = (
@@ -1055,17 +1916,24 @@ class MainWindow(QMainWindow):
 
         self.debug_label.setText(
             f"Angle: {angle:.3f} deg\n"
-            f"Torque: {torque:.3f} Nm\n"
+            f"Measured torque: {torque:.3f} Nm\n"
             f"Phase 1 current: {phase1:.3f} A\n"
             f"Phase 2 current: {phase2:.3f} A\n"
             f"Impedance: {impedance:.3f}\n"
             f"Admittance: {admittance:.3f}\n\n"
-            f"Spring region: {active_region}\n"
-            f"Virtual spring torque: "
+            f"Active spring region: {active_region}\n"
+            f"Calculated virtual torque: "
             f"{virtual_torque:.4f} Nm"
         )
 
-    def rec_meas(self, checked: bool) -> None:
+    # --------------------------------------------------------
+    # Start/stop recording
+    # --------------------------------------------------------
+
+    def rec_meas(
+        self,
+        checked: bool,
+    ) -> None:
         if checked:
             self.start_button.setText(
                 "Stop recording measurements"
@@ -1084,6 +1952,10 @@ class MainWindow(QMainWindow):
 
             self.timer.stop()
 
+    # --------------------------------------------------------
+    # Shutdown
+    # --------------------------------------------------------
+
     def closeEvent(self, event) -> None:
         self.timer.stop()
 
@@ -1093,24 +1965,37 @@ class MainWindow(QMainWindow):
             event.accept()
 
 
+# ============================================================
+# Program entry point
+# ============================================================
+
 def main() -> None:
     app = QApplication(sys.argv)
 
     try:
         window = MainWindow()
+
     except FileNotFoundError:
         print(
             f'Could not connect to shared memory "{MEM_NAME}".'
         )
+
         print(
             "Start the shared-memory producer before opening the GUI."
         )
+
         sys.exit(1)
 
-    window.resize(1150, 850)
+    window.resize(
+        1150,
+        850,
+    )
+
     window.show()
 
-    sys.exit(app.exec())
+    sys.exit(
+        app.exec()
+    )
 
 
 if __name__ == "__main__":
