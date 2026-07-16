@@ -1,3 +1,55 @@
+% Estimation of human operator parameters
+% Fetch values from Simulink
+
+simOut = sim('controller1_SR', ...
+    'ReturnWorkspaceOutputs', 'on');
+
+angle_ts  = simOut.angle;
+torque_ts = simOut.torque;
+
+t      = angle_ts.Time(:);
+angle  = squeeze(angle_ts.Data);
+torque = squeeze(torque_ts.Data);
+
+angle  = angle(:);
+torque = torque(:);
+
+Th = mean(diff(t));
+
+if numel(t) ~= numel(angle) || numel(angle) ~= numel(torque)
+    error('Time, angle, and torque signals do not have equal lengths.');
+end
+
+valid = isfinite(t) & isfinite(angle) & isfinite(torque);
+
+t      = t(valid);
+angle  = angle(valid);
+torque = torque(valid);
+
+data = iddata(angle, torque, Th);
+
+data.InputName = 'Torque';
+data.InputUnit = 'Nm';
+
+data.OutputName = 'Angle';
+data.OutputUnit = 'rad';
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 %%CAPT motor model for testing before deployment to dSpace 
 clear;
 
