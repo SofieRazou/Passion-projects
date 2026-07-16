@@ -9,3 +9,10 @@ end
 y = e_n - e_prev;
 
 e_prev = y;
+
+
+Error using InputOutputModel/subsref
+Too many output arguments.
+
+Error in sofia_udp_test (line 124)
+[AH, BH, CH, DH] = human.Parameters();
