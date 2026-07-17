@@ -1,6 +1,7 @@
-import sys
 import csv
+import sys
 from pathlib import Path
+from typing import Union
 
 import pandas as pd
 
@@ -22,20 +23,37 @@ from PyQt6.QtWidgets import (
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-# Config
+
+# =========================================================
+# Configuration
+# =========================================================
 
 CSV_FILE = Path("exp1_002.csv")
 
-# Check for file changes every 500 milliseconds.
+# Check the CSV for changes every 500 milliseconds.
 UPDATE_INTERVAL_MS = 500
 
+# Maximum number of recent samples displayed in each plot.
 MAX_PLOT_SAMPLES = 1000
 
+# Number of dSPACE signals to plot.
+NUMBER_OF_SIGNALS_TO_PLOT = 8
 
+
+# =========================================================
 # dSPACE CSV loading
-
+# =========================================================
 
 def make_unique_names(names: list[str]) -> list[str]:
+    """
+    Make every signal name unique.
+
+    For example:
+        Torque, Torque, Angle
+
+    becomes:
+        Torque, Torque_2, Angle
+    """
 
     counts: dict[str, int] = {}
     unique_names: list[str] = []
@@ -57,25 +75,26 @@ def make_unique_names(names: list[str]) -> list[str]:
         unique_names.append(unique_name)
 
     return unique_names
-from typing import Union
 
 
-def load_dspace_csv(file_path: Union[str, Path]) -> pd.DataFrame:
+def load_dspace_csv(
+    file_path: Union[str, Path],
+) -> pd.DataFrame:
     """
-    Load a dSPACE CSV file.
+    Load a dSPACE CSV export.
 
-    The parser:
-    - detects the CSV delimiter
-    - handles rows with different numbers of columns
-    - finds the 'path' row
-    - finds the 'trace_values' row
-    - extracts signal names
-    - converts the signal values to numeric values
+    This parser:
+    - detects comma, semicolon or tab delimiters
+    - handles metadata rows with different lengths
+    - finds the row containing 'path'
+    - finds the row containing 'trace_values'
+    - extracts all logged signal names
+    - converts all logged values to numbers
     """
 
     file_path = Path(file_path).expanduser()
 
-    # Try adding the .csv suffix automatically.
+    # Automatically add ".csv" when omitted.
     if not file_path.exists() and file_path.suffix == "":
         possible_csv_path = file_path.with_suffix(".csv")
 
@@ -87,7 +106,7 @@ def load_dspace_csv(file_path: Union[str, Path]) -> pd.DataFrame:
             f"CSV file not found: {file_path.resolve()}"
         )
 
-    # Read the file and detect the delimiter.
+    # Read the CSV and detect its delimiter.
     with file_path.open(
         "r",
         encoding="utf-8-sig",
@@ -103,7 +122,6 @@ def load_dspace_csv(file_path: Union[str, Path]) -> pd.DataFrame:
                 sample,
                 delimiters=",;\t",
             )
-
             delimiter = dialect.delimiter
 
         except csv.Error:
@@ -119,14 +137,17 @@ def load_dspace_csv(file_path: Union[str, Path]) -> pd.DataFrame:
     if not rows:
         raise ValueError("The CSV file is empty.")
 
-    # Remove unnecessary whitespace from each cell.
+    # Strip whitespace from every cell.
     rows = [
         [cell.strip() for cell in row]
         for row in rows
     ]
 
-    # dSPACE metadata rows may contain fewer columns than data rows.
-    maximum_columns = max(len(row) for row in rows)
+    # dSPACE metadata rows can have different column counts.
+    maximum_columns = max(
+        len(row)
+        for row in rows
+    )
 
     padded_rows = [
         row + [""] * (maximum_columns - len(row))
@@ -137,7 +158,7 @@ def load_dspace_csv(file_path: Union[str, Path]) -> pd.DataFrame:
 
     def find_row_containing(value: str) -> int:
         """
-        Find the first row containing the requested text.
+        Return the index of the first row containing value.
         """
 
         target = value.strip().lower()
@@ -174,35 +195,34 @@ def load_dspace_csv(file_path: Union[str, Path]) -> pd.DataFrame:
         if str(value).strip().lower() == "trace_values"
     )
 
-    # Signal names are normally placed after the "path" cell.
+    # Signal names normally appear after the "path" cell.
     signal_names = path_row[path_column_index + 1:]
 
-    # Remove empty signal names from the end of the row.
+    # Remove empty trailing cells.
     while signal_names and signal_names[-1] == "":
         signal_names.pop()
 
     if not signal_names:
         raise ValueError(
-            "The 'path' row was found, "
-            "but no signal names were detected."
+            "The 'path' row was found, but no signal names "
+            "were detected."
         )
 
     signal_names = make_unique_names(signal_names)
 
     data_start_column = trace_column_index + 1
-    number_of_signals = len(signal_names)
+    number_of_columns = len(signal_names)
 
-    # Start from the trace_values row.
-    # Any text cells will later become NaN and be removed.
+    # Start at the trace_values row. Text values will become NaN.
     data_df = raw_df.iloc[
         trace_row_index:,
         data_start_column:
-        data_start_column + number_of_signals,
+        data_start_column + number_of_columns,
     ].copy()
 
     data_df.columns = signal_names
 
-    # Convert each column to numeric values.
+    # Convert all signal columns to numeric values.
     for column_name in data_df.columns:
         cleaned_column = (
             data_df[column_name]
@@ -215,7 +235,7 @@ def load_dspace_csv(file_path: Union[str, Path]) -> pd.DataFrame:
             errors="coerce",
         )
 
-    # Remove rows that contain no numeric values.
+    # Remove rows that do not contain any numerical values.
     data_df = (
         data_df
         .dropna(how="all")
@@ -224,24 +244,27 @@ def load_dspace_csv(file_path: Union[str, Path]) -> pd.DataFrame:
 
     if data_df.empty:
         raise ValueError(
-            "No numerical values were found "
-            "after the 'trace_values' row."
+            "No numerical values were found after "
+            "the 'trace_values' row."
         )
 
     return data_df
 
 
-# ---------------------------------------------------------
+# =========================================================
 # Main GUI
-# ---------------------------------------------------------
+# =========================================================
 
 class MainWindow(QMainWindow):
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
 
-        self.setWindowTitle("CAPT Motor Live Data")
-        self.resize(1300, 850)
+        self.setWindowTitle(
+            "CAPT Motor Live Data — Eight Signals"
+        )
+
+        self.resize(1400, 950)
 
         self.last_modified_time: float | None = None
         self.is_monitoring = False
@@ -250,29 +273,29 @@ class MainWindow(QMainWindow):
         self.create_toolbar()
         self.create_timer()
 
-        # Start reading the CSV when the program opens.
+        # Start reading the file automatically.
         self.start_monitoring()
 
-    # -----------------------------------------------------
+    # =====================================================
     # Interface
-    # -----------------------------------------------------
+    # =====================================================
 
     def create_interface(self) -> None:
         """
-        Create the tabs, table, plots and status labels.
+        Create the CSV table and eight-signal plot tabs.
         """
 
         self.tabs = QTabWidget()
 
-        # --------------------------
-        # Table tab
-        # --------------------------
+        # -------------------------------------------------
+        # CSV table tab
+        # -------------------------------------------------
 
         self.table_tab = QWidget()
-        table_layout = QVBoxLayout()
+        table_layout = QVBoxLayout(self.table_tab)
 
         self.info_label = QLabel(
-            "Waiting for CSV data..."
+            "Waiting for dSPACE CSV data..."
         )
 
         self.info_label.setAlignment(
@@ -291,26 +314,29 @@ class MainWindow(QMainWindow):
         table_layout.addWidget(self.info_label)
         table_layout.addWidget(self.table)
 
-        self.table_tab.setLayout(table_layout)
-
         self.tabs.addTab(
             self.table_tab,
             "CSV Data",
         )
 
-        # --------------------------
-        # Plot tab
-        # --------------------------
+        # -------------------------------------------------
+        # Eight-signal plot tab
+        # -------------------------------------------------
 
         self.plot_tab = QWidget()
-        plot_layout = QVBoxLayout()
+        plot_layout = QVBoxLayout(self.plot_tab)
 
         self.plot_info_label = QLabel(
-            "The last three signals will be plotted here."
+            "The eight logged signals will be plotted here."
+        )
+
+        self.plot_info_label.setAlignment(
+            Qt.AlignmentFlag.AlignLeft
+            | Qt.AlignmentFlag.AlignVCenter
         )
 
         self.figure = Figure(
-            figsize=(10, 7)
+            figsize=(12, 12)
         )
 
         self.canvas = FigureCanvas(
@@ -325,25 +351,20 @@ class MainWindow(QMainWindow):
             self.canvas
         )
 
-        self.plot_tab.setLayout(
-            plot_layout
-        )
-
         self.tabs.addTab(
             self.plot_tab,
-            "Last Three Signals",
+            "Eight Live Signals",
         )
 
-        # --------------------------
-        # Central widget
-        # --------------------------
-
-        central_layout = QVBoxLayout()
-        central_layout.addWidget(self.tabs)
+        # -------------------------------------------------
+        # Main central widget
+        # -------------------------------------------------
 
         central_widget = QWidget()
-        central_widget.setLayout(
-            central_layout
+        central_layout = QVBoxLayout(central_widget)
+
+        central_layout.addWidget(
+            self.tabs
         )
 
         self.setCentralWidget(
@@ -354,13 +375,13 @@ class MainWindow(QMainWindow):
             QStatusBar(self)
         )
 
-    # -----------------------------------------------------
+    # =====================================================
     # Toolbar
-    # -----------------------------------------------------
+    # =====================================================
 
     def create_toolbar(self) -> None:
         """
-        Create toolbar actions.
+        Create monitoring controls.
         """
 
         toolbar = QToolBar(
@@ -373,7 +394,7 @@ class MainWindow(QMainWindow):
 
         self.addToolBar(toolbar)
 
-        # Start
+        # Start action
         self.start_action = QAction(
             QIcon("start_icon.png"),
             "Start monitoring",
@@ -381,7 +402,7 @@ class MainWindow(QMainWindow):
         )
 
         self.start_action.setStatusTip(
-            "Start reading updated CSV values"
+            "Start reading updated dSPACE CSV values"
         )
 
         self.start_action.triggered.connect(
@@ -392,7 +413,7 @@ class MainWindow(QMainWindow):
             self.start_action
         )
 
-        # Stop
+        # Stop action
         self.stop_action = QAction(
             "Stop monitoring",
             self,
@@ -410,33 +431,31 @@ class MainWindow(QMainWindow):
             self.stop_action
         )
 
-        # Reload
+        # Manual reload action
         self.reload_action = QAction(
             "Reload now",
             self,
         )
 
         self.reload_action.setStatusTip(
-            "Immediately reload the CSV file"
+            "Immediately reload the dSPACE CSV file"
         )
 
         self.reload_action.triggered.connect(
-            lambda: self.update_from_file(
-                force=True
-            )
+            lambda: self.update_from_file(force=True)
         )
 
         toolbar.addAction(
             self.reload_action
         )
 
-    # -----------------------------------------------------
+    # =====================================================
     # Update timer
-    # -----------------------------------------------------
+    # =====================================================
 
     def create_timer(self) -> None:
         """
-        Create a timer that checks whether the CSV changed.
+        Create the timer used to monitor the CSV.
         """
 
         self.timer = QTimer(self)
@@ -451,11 +470,10 @@ class MainWindow(QMainWindow):
 
     def start_monitoring(self) -> None:
         """
-        Start automatically monitoring the CSV file.
+        Start monitoring the CSV file.
         """
 
         self.is_monitoring = True
-
         self.timer.start()
 
         self.update_from_file(
@@ -469,30 +487,29 @@ class MainWindow(QMainWindow):
 
     def stop_monitoring(self) -> None:
         """
-        Stop automatically monitoring the CSV file.
+        Stop monitoring the CSV file.
         """
 
         self.is_monitoring = False
-
         self.timer.stop()
 
         self.statusBar().showMessage(
             "CSV monitoring stopped"
         )
 
-    # -----------------------------------------------------
+    # =====================================================
     # Read and refresh
-    # -----------------------------------------------------
+    # =====================================================
 
     def update_from_file(
         self,
         force: bool = False,
     ) -> None:
         """
-        Reload the CSV only when it changes.
+        Reload the CSV when the file modification time changes.
 
-        force=True reloads the file regardless
-        of its modification timestamp.
+        force=True reloads the file regardless of its
+        modification timestamp.
         """
 
         if not force and not self.is_monitoring:
@@ -501,8 +518,11 @@ class MainWindow(QMainWindow):
         try:
             if not CSV_FILE.exists():
                 self.info_label.setText(
-                    f"File not found: "
-                    f"{CSV_FILE.resolve()}"
+                    f"File not found: {CSV_FILE.resolve()}"
+                )
+
+                self.plot_info_label.setText(
+                    f"File not found: {CSV_FILE.resolve()}"
                 )
 
                 self.statusBar().showMessage(
@@ -515,7 +535,7 @@ class MainWindow(QMainWindow):
                 CSV_FILE.stat().st_mtime
             )
 
-            # Skip reloading when the file did not change.
+            # Do not reload if nothing has changed.
             if (
                 not force
                 and self.last_modified_time
@@ -542,7 +562,7 @@ class MainWindow(QMainWindow):
             self.info_label.setText(
                 f"File: {CSV_FILE.name} | "
                 f"Rows: {len(data_df)} | "
-                f"Signals: {len(data_df.columns)}"
+                f"Logged columns: {len(data_df.columns)}"
             )
 
             self.statusBar().showMessage(
@@ -550,10 +570,10 @@ class MainWindow(QMainWindow):
             )
 
         except PermissionError:
-            # The CSV may briefly be locked while dSPACE writes to it.
+            # The CSV may be temporarily locked while dSPACE
+            # writes new data into it.
             self.statusBar().showMessage(
-                "CSV is currently being written. "
-                "Retrying..."
+                "The CSV is currently being written. Retrying..."
             )
 
         except (
@@ -562,25 +582,41 @@ class MainWindow(QMainWindow):
             csv.Error,
         ) as error:
 
+            self.info_label.setText(
+                str(error)
+            )
+
+            self.plot_info_label.setText(
+                str(error)
+            )
+
             self.statusBar().showMessage(
                 str(error)
             )
 
         except Exception as error:
-            self.statusBar().showMessage(
+            error_message = (
                 f"Unexpected CSV error: {error}"
             )
 
-    # -----------------------------------------------------
-    # Table
-    # -----------------------------------------------------
+            self.info_label.setText(
+                error_message
+            )
+
+            self.statusBar().showMessage(
+                error_message
+            )
+
+    # =====================================================
+    # CSV table
+    # =====================================================
 
     def display_dataframe(
         self,
         data_df: pd.DataFrame,
     ) -> None:
         """
-        Display every row and column in the table.
+        Display every available row and column in the table.
         """
 
         previous_vertical_scroll = (
@@ -628,9 +664,7 @@ class MainWindow(QMainWindow):
                     if pd.isna(value):
                         displayed_value = ""
                     else:
-                        displayed_value = (
-                            f"{value:.6g}"
-                        )
+                        displayed_value = f"{value:.6g}"
 
                     item = QTableWidgetItem(
                         displayed_value
@@ -647,7 +681,6 @@ class MainWindow(QMainWindow):
                         item,
                     )
 
-            # Resize only after all cells are added.
             self.table.resizeColumnsToContents()
 
             self.table.verticalScrollBar().setValue(
@@ -663,101 +696,178 @@ class MainWindow(QMainWindow):
                 True
             )
 
-    # -----------------------------------------------------
-    # Plots
-    # -----------------------------------------------------
-def update_plots(
-    self,
-    data_df: pd.DataFrame,
-) -> None:
-    """
-    Plot every logged signal.
+    # =====================================================
+    # Eight live plots
+    # =====================================================
 
-    The first column is assumed to be the time axis whenever possible.
-    """
+    def update_plots(
+        self,
+        data_df: pd.DataFrame,
+    ) -> None:
+        """
+        Plot exactly eight logged signals.
 
-    self.figure.clear()
+        Behaviour:
+        - If the CSV contains a time column plus eight signals,
+          the time column is used as the x-axis.
+        - If the CSV contains exactly eight columns, all eight
+          columns are plotted against sample number.
+        - Only the newest MAX_PLOT_SAMPLES are displayed.
+        """
 
-    if data_df.empty:
-        self.plot_info_label.setText(
-            "No data available."
-        )
-        self.canvas.draw_idle()
-        return
+        self.figure.clear()
 
-    plot_df = (
-        data_df.tail(MAX_PLOT_SAMPLES)
-        .reset_index(drop=True)
-    )
-
-    columns = list(plot_df.columns)
-
-    # Assume first column is time
-    time_column = columns[0]
-    signal_columns = columns[1:]
-
-    if len(signal_columns) == 0:
-        self.plot_info_label.setText(
-            "No signals found."
-        )
-        self.canvas.draw_idle()
-        return
-
-    x_values = plot_df[time_column]
-
-    self.plot_info_label.setText(
-        f"Displaying {len(signal_columns)} signals "
-        f"({len(plot_df)} samples)"
-    )
-
-    axes = []
-
-    for i, signal in enumerate(signal_columns):
-
-        if i == 0:
-            ax = self.figure.add_subplot(
-                len(signal_columns),
-                1,
-                i + 1
+        if data_df.empty:
+            self.plot_info_label.setText(
+                "No data is available for plotting."
             )
+
+            self.canvas.draw_idle()
+            return
+
+        plot_df = (
+            data_df
+            .tail(MAX_PLOT_SAMPLES)
+            .reset_index(drop=True)
+        )
+
+        all_columns = list(
+            plot_df.columns
+        )
+
+        if len(all_columns) < NUMBER_OF_SIGNALS_TO_PLOT:
+            self.plot_info_label.setText(
+                f"Only {len(all_columns)} columns were detected. "
+                f"At least {NUMBER_OF_SIGNALS_TO_PLOT} are required."
+            )
+
+            self.canvas.draw_idle()
+            return
+
+        first_column = all_columns[0]
+        first_column_lower = str(first_column).strip().lower()
+
+        time_keywords = {
+            "time",
+            "timestamp",
+            "t",
+            "sample_time",
+            "simulation_time",
+        }
+
+        # Case 1: first column appears to be a time column.
+        if (
+            len(all_columns) >= NUMBER_OF_SIGNALS_TO_PLOT + 1
+            and first_column_lower in time_keywords
+        ):
+            x_values = plot_df[first_column]
+            x_label = str(first_column)
+
+            signal_columns = all_columns[
+                1:
+                NUMBER_OF_SIGNALS_TO_PLOT + 1
+            ]
+
+        # Case 2: nine or more columns are present, so assume
+        # the first column is the time/sample column.
+        elif len(all_columns) >= NUMBER_OF_SIGNALS_TO_PLOT + 1:
+            x_values = plot_df[first_column]
+            x_label = str(first_column)
+
+            signal_columns = all_columns[
+                1:
+                NUMBER_OF_SIGNALS_TO_PLOT + 1
+            ]
+
+        # Case 3: exactly eight columns are available.
         else:
-            ax = self.figure.add_subplot(
-                len(signal_columns),
-                1,
-                i + 1,
-                sharex=axes[0]
+            x_values = plot_df.index
+            x_label = "Sample"
+
+            signal_columns = all_columns[
+                :NUMBER_OF_SIGNALS_TO_PLOT
+            ]
+
+        self.plot_info_label.setText(
+            f"Displaying {len(signal_columns)} signals | "
+            f"Samples shown: {len(plot_df)} | "
+            f"Signals: {', '.join(map(str, signal_columns))}"
+        )
+
+        axes = []
+
+        for index, signal_name in enumerate(signal_columns):
+
+            if index == 0:
+                axis = self.figure.add_subplot(
+                    NUMBER_OF_SIGNALS_TO_PLOT,
+                    1,
+                    index + 1,
+                )
+
+            else:
+                axis = self.figure.add_subplot(
+                    NUMBER_OF_SIGNALS_TO_PLOT,
+                    1,
+                    index + 1,
+                    sharex=axes[0],
+                )
+
+            axes.append(axis)
+
+            valid_values = (
+                plot_df[signal_name].notna()
             )
 
-        axes.append(ax)
+            axis.plot(
+                x_values[valid_values],
+                plot_df.loc[
+                    valid_values,
+                    signal_name,
+                ],
+                linewidth=1.0,
+            )
 
-        valid = plot_df[signal].notna()
+            axis.set_ylabel(
+                str(signal_name),
+                fontsize=7,
+            )
 
-        ax.plot(
-            x_values[valid],
-            plot_df.loc[valid, signal],
-            linewidth=1.2
+            axis.grid(
+                True,
+                alpha=0.3,
+            )
+
+            axis.tick_params(
+                axis="both",
+                labelsize=7,
+            )
+
+            # Only show x-axis labels on the final plot.
+            if index < NUMBER_OF_SIGNALS_TO_PLOT - 1:
+                axis.tick_params(
+                    labelbottom=False
+                )
+
+        axes[-1].set_xlabel(
+            x_label,
+            fontsize=8,
         )
 
-        ax.set_ylabel(signal, fontsize=8)
-
-        ax.grid(
-            True,
-            alpha=0.3
+        self.figure.subplots_adjust(
+            left=0.15,
+            right=0.98,
+            top=0.98,
+            bottom=0.07,
+            hspace=0.28,
         )
 
-        if i != len(signal_columns) - 1:
-            ax.tick_params(labelbottom=False)
-
-    axes[-1].set_xlabel(time_column)
-
-    self.figure.tight_layout()
-
-    self.canvas.draw_idle()
+        self.canvas.draw_idle()
 
 
-# ---------------------------------------------------------
+# =========================================================
 # Program entry point
-# ---------------------------------------------------------
+# =========================================================
 
 def main() -> None:
     app = QApplication(sys.argv)
