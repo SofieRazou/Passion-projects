@@ -1,120 +1,155 @@
 from pathlib import Path
+import csv
 
 import pandas as pd
 
 
 def load_dspace_csv(file_path: str | Path) -> pd.DataFrame:
-    """
-    Load a dSPACE CSV export containing:
-    - a 'path' row with signal names
-    - a 'trace_values' row followed by numerical samples
-    """
+    file_path = Path(file_path).expanduser()
 
-    file_path = Path(file_path)
+    # Automatically try adding .csv if no extension was supplied.
+    if not file_path.exists() and file_path.suffix == "":
+        csv_path = file_path.with_suffix(".csv")
+
+        if csv_path.exists():
+            file_path = csv_path
 
     if not file_path.exists():
-        raise FileNotFoundError(f"CSV file not found: {file_path}")
+        raise FileNotFoundError(
+            f"CSV file not found: {file_path.resolve()}"
+        )
 
-    # Read the file without assuming where the header and data rows are.
-    raw_df = pd.read_csv(
-        file_path,
-        header=None,
-        dtype=str,
-        keep_default_na=False
+    # Detect the delimiter from the beginning of the file.
+    with file_path.open(
+        "r",
+        encoding="utf-8-sig",
+        errors="replace",
+        newline=""
+    ) as file:
+        sample = file.read(4096)
+        file.seek(0)
+
+        try:
+            dialect = csv.Sniffer().sniff(
+                sample,
+                delimiters=",;\t"
+            )
+            delimiter = dialect.delimiter
+        except csv.Error:
+            delimiter = ","
+
+        reader = csv.reader(file, delimiter=delimiter)
+        rows = [row for row in reader]
+
+    if not rows:
+        raise ValueError("The CSV file is empty.")
+
+    # Strip whitespace from all cells.
+    rows = [
+        [cell.strip() for cell in row]
+        for row in rows
+    ]
+
+    # Different metadata rows may have different column counts.
+    # Pad every row to the maximum width.
+    maximum_columns = max(len(row) for row in rows)
+
+    padded_rows = [
+        row + [""] * (maximum_columns - len(row))
+        for row in rows
+    ]
+
+    raw_df = pd.DataFrame(padded_rows)
+
+    def find_row_containing(value: str) -> int:
+        value = value.lower()
+
+        for row_index, row in raw_df.iterrows():
+            cells = row.astype(str).str.strip().str.lower()
+
+            if cells.eq(value).any():
+                return row_index
+
+        raise ValueError(f"Could not find a row containing '{value}'.")
+
+    path_row_index = find_row_containing("path")
+    trace_row_index = find_row_containing("trace_values")
+
+    path_row = raw_df.iloc[path_row_index].tolist()
+
+    # Locate the actual cell containing "path".
+    path_column_index = next(
+        index
+        for index, value in enumerate(path_row)
+        if str(value).strip().lower() == "path"
     )
 
-    # Remove leading/trailing whitespace from every string cell.
-    raw_df = raw_df.apply(lambda column: column.str.strip())
+    # Locate the actual cell containing "trace_values".
+    trace_row = raw_df.iloc[trace_row_index].tolist()
 
-    # Find the row containing "path".
-    path_rows = raw_df.index[
-        raw_df.apply(
-            lambda row: row.str.lower().eq("path").any(),
-            axis=1
+    trace_column_index = next(
+        index
+        for index, value in enumerate(trace_row)
+        if str(value).strip().lower() == "trace_values"
+    )
+
+    # In many dSPACE exports, the signal names begin after the "path" cell.
+    signal_names = path_row[path_column_index + 1:]
+
+    # Remove empty trailing signal names.
+    while signal_names and signal_names[-1] == "":
+        signal_names.pop()
+
+    if not signal_names:
+        raise ValueError(
+            "The 'path' row was found, but no signal names were detected."
         )
-    ]
 
-    if path_rows.empty:
-        raise ValueError("Could not find a row containing 'path'.")
+    # Data can begin on the trace_values row or directly below it.
+    # Start from the column after the trace_values label.
+    data_start_column = trace_column_index + 1
+    number_of_signals = len(signal_names)
 
-    path_row_index = path_rows[0]
+    data_df = raw_df.iloc[
+        trace_row_index:,
+        data_start_column:data_start_column + number_of_signals
+    ].copy()
 
-    # Find the row containing "trace_values".
-    trace_rows = raw_df.index[
-        raw_df.apply(
-            lambda row: row.str.lower().eq("trace_values").any(),
-            axis=1
-        )
-    ]
+    data_df.columns = signal_names
 
-    if trace_rows.empty:
-        raise ValueError("Could not find a row containing 'trace_values'.")
-
-    trace_row_index = trace_rows[0]
-
-    # Extract signal names from the path row.
-    column_names = raw_df.iloc[path_row_index].tolist()
-
-    # The first column normally contains the row identifier "path".
-    column_names[0] = "Time"
-
-    # Replace missing signal names with generated names.
-    column_names = [
-        name if name else f"Signal_{index}"
-        for index, name in enumerate(column_names)
-    ]
-
-    # Ensure duplicate signal names do not cause ambiguity.
-    seen_names: dict[str, int] = {}
-    unique_column_names: list[str] = []
-
-    for name in column_names:
-        count = seen_names.get(name, 0)
-
-        if count == 0:
-            unique_name = name
-        else:
-            unique_name = f"{name}_{count}"
-
-        unique_column_names.append(unique_name)
-        seen_names[name] = count + 1
-
-    # Numerical values may begin either on the trace_values row or the next row.
-    data_df = raw_df.iloc[trace_row_index:].copy()
-    data_df.columns = unique_column_names
-
-    # Remove the trace_values label without replacing it with a fake time value.
-    data_df.iloc[0, 0] = ""
-
-    # Convert every value to numeric.
-    # Invalid metadata cells become NaN.
+    # Convert all cells to numeric.
     data_df = data_df.apply(
-        lambda column: pd.to_numeric(column, errors="coerce")
+        lambda column: pd.to_numeric(
+            column.str.replace(",", ".", regex=False),
+            errors="coerce"
+        )
     )
 
-    # Remove rows that contain no numerical data.
-    data_df = data_df.dropna(how="all")
+    # Remove metadata and completely empty rows.
+    data_df = data_df.dropna(how="all").reset_index(drop=True)
 
-    # A valid sample should normally have a time value.
-    data_df = data_df.dropna(subset=["Time"])
-
-    # Reset row numbering after removing metadata rows.
-    data_df = data_df.reset_index(drop=True)
+    if data_df.empty:
+        raise ValueError(
+            "No numerical data was found after the 'trace_values' row."
+        )
 
     return data_df
 
 
 if __name__ == "__main__":
-    file_path = "your_file.csv"
+    file_path = "exp1_001.csv"
 
     try:
         data_df = load_dspace_csv(file_path)
 
+        print("CSV loaded successfully.")
+        print(f"Shape: {data_df.shape}")
+        print("\nColumns:")
+        print(data_df.columns.tolist())
+        print("\nFirst rows:")
         print(data_df.head())
-        print("\nColumn types:")
-        print(data_df.dtypes)
 
-    except (FileNotFoundError, ValueError, pd.errors.ParserError) as error:
+    except Exception as error:
         print(f"Failed to load the dSPACE CSV: {error}")
 
 
