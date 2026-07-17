@@ -1,830 +1,471 @@
-import sys
 import csv
+import socket
+import struct
+import sys
+import time
+from collections import deque
 from pathlib import Path
 
-import pandas as pd
-
-from PyQt6.QtCore import Qt, QTimer, QSize
-from PyQt6.QtGui import QAction, QIcon
+import numpy as np
+import pyqtgraph as pg
+from PyQt6.QtCore import QThread, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QLabel,
     QMainWindow,
-    QStatusBar,
-    QTableWidget,
-    QTableWidgetItem,
-    QTabWidget,
-    QToolBar,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+UDP_IP = "0.0.0.0"
+UDP_PORT = 5005
+
+# The order must match the dSPACE UDP transmission vector.
+SIGNAL_NAMES = [
+    "Angle",
+    "Torque",
+    "Angular velocity",
+    "Phase current 1",
+    "Phase current 2",
+    "Controller output",
+]
+
+SIGNAL_UNITS = [
+    "rad",
+    "Nm",
+    "rad/s",
+    "A",
+    "A",
+    "Nm",
+]
+
+NUM_SIGNALS = len(SIGNAL_NAMES)
+
+# dSPACE sends six little-endian float32 values.
+PACKET_FORMAT = f"<{NUM_SIGNALS}f"
+EXPECTED_PACKET_SIZE = struct.calcsize(PACKET_FORMAT)
+
+# Number of seconds shown in the plots.
+HISTORY_SECONDS = 10
+
+# Expected UDP transmission frequency.
+RECEIVE_FREQUENCY = 100
+
+# Maximum number of stored samples.
+HISTORY_SIZE = HISTORY_SECONDS * RECEIVE_FREQUENCY
+
+# GUI redraw interval. 20 ms corresponds to approximately 50 FPS.
+GUI_UPDATE_MS = 20
+
+CSV_FILE = Path("dspace_live_recording.csv")
 
 
-# ---------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------
+# ============================================================
+# UDP RECEIVER THREAD
+# ============================================================
 
-CSV_FILE = Path("capt_logs.csv")
-
-# Check for file changes every 500 milliseconds.
-UPDATE_INTERVAL_MS = 500
-
-# Limit plotting to the most recent samples for better performance.
-MAX_PLOT_SAMPLES = 1000
-
-
-# ---------------------------------------------------------
-# dSPACE CSV loading
-# ---------------------------------------------------------
-
-def make_unique_names(names: list[str]) -> list[str]:
+class UDPReceiver(QThread):
     """
-    Ensure that every signal name is unique.
-
-    Example:
-        angle, angle, torque
-
-    becomes:
-        angle, angle_2, torque
-    """
-
-    counts: dict[str, int] = {}
-    unique_names: list[str] = []
-
-    for index, raw_name in enumerate(names):
-        name = str(raw_name).strip()
-
-        if not name:
-            name = f"Signal_{index + 1}"
-
-        count = counts.get(name, 0)
-
-        if count == 0:
-            unique_name = name
-        else:
-            unique_name = f"{name}_{count + 1}"
-
-        counts[name] = count + 1
-        unique_names.append(unique_name)
-
-    return unique_names
-
-
-def load_dspace_csv(file_path: str | Path) -> pd.DataFrame:
-    """
-    Load a dSPACE CSV file.
-
-    The parser:
-    - detects the CSV delimiter
-    - handles rows with different numbers of columns
-    - finds the 'path' row
-    - finds the 'trace_values' row
-    - extracts signal names
-    - converts the signal values to numeric values
+    Receives UDP packets without blocking the graphical interface.
     """
 
-    file_path = Path(file_path).expanduser()
-
-    # Try adding the .csv suffix automatically.
-    if not file_path.exists() and file_path.suffix == "":
-        possible_csv_path = file_path.with_suffix(".csv")
-
-        if possible_csv_path.exists():
-            file_path = possible_csv_path
-
-    if not file_path.exists():
-        raise FileNotFoundError(
-            f"CSV file not found: {file_path.resolve()}"
-        )
-
-    # Read the file and detect the delimiter.
-    with file_path.open(
-        "r",
-        encoding="utf-8-sig",
-        errors="replace",
-        newline="",
-    ) as csv_file:
-
-        sample = csv_file.read(4096)
-        csv_file.seek(0)
-
-        try:
-            dialect = csv.Sniffer().sniff(
-                sample,
-                delimiters=",;\t",
-            )
-
-            delimiter = dialect.delimiter
-
-        except csv.Error:
-            delimiter = ","
-
-        reader = csv.reader(
-            csv_file,
-            delimiter=delimiter,
-        )
-
-        rows = list(reader)
-
-    if not rows:
-        raise ValueError("The CSV file is empty.")
-
-    # Remove unnecessary whitespace from each cell.
-    rows = [
-        [cell.strip() for cell in row]
-        for row in rows
-    ]
-
-    # dSPACE metadata rows may contain fewer columns than data rows.
-    maximum_columns = max(len(row) for row in rows)
-
-    padded_rows = [
-        row + [""] * (maximum_columns - len(row))
-        for row in rows
-    ]
-
-    raw_df = pd.DataFrame(padded_rows)
-
-    def find_row_containing(value: str) -> int:
-        """
-        Find the first row containing the requested text.
-        """
-
-        target = value.strip().lower()
-
-        for row_index, row in raw_df.iterrows():
-            cells = (
-                row.astype(str)
-                .str.strip()
-                .str.lower()
-            )
-
-            if cells.eq(target).any():
-                return row_index
-
-        raise ValueError(
-            f"Could not find a row containing '{value}'."
-        )
-
-    path_row_index = find_row_containing("path")
-    trace_row_index = find_row_containing("trace_values")
-
-    path_row = raw_df.iloc[path_row_index].tolist()
-    trace_row = raw_df.iloc[trace_row_index].tolist()
-
-    path_column_index = next(
-        index
-        for index, value in enumerate(path_row)
-        if str(value).strip().lower() == "path"
-    )
-
-    trace_column_index = next(
-        index
-        for index, value in enumerate(trace_row)
-        if str(value).strip().lower() == "trace_values"
-    )
-
-    # Signal names are normally placed after the "path" cell.
-    signal_names = path_row[path_column_index + 1:]
-
-    # Remove empty signal names from the end of the row.
-    while signal_names and signal_names[-1] == "":
-        signal_names.pop()
-
-    if not signal_names:
-        raise ValueError(
-            "The 'path' row was found, "
-            "but no signal names were detected."
-        )
-
-    signal_names = make_unique_names(signal_names)
-
-    data_start_column = trace_column_index + 1
-    number_of_signals = len(signal_names)
-
-    # Start from the trace_values row.
-    # Any text cells will later become NaN and be removed.
-    data_df = raw_df.iloc[
-        trace_row_index:,
-        data_start_column:
-        data_start_column + number_of_signals,
-    ].copy()
-
-    data_df.columns = signal_names
-
-    # Convert each column to numeric values.
-    for column_name in data_df.columns:
-        cleaned_column = (
-            data_df[column_name]
-            .astype(str)
-            .str.strip()
-        )
-
-        data_df[column_name] = pd.to_numeric(
-            cleaned_column,
-            errors="coerce",
-        )
-
-    # Remove rows that contain no numeric values.
-    data_df = (
-        data_df
-        .dropna(how="all")
-        .reset_index(drop=True)
-    )
-
-    if data_df.empty:
-        raise ValueError(
-            "No numerical values were found "
-            "after the 'trace_values' row."
-        )
-
-    return data_df
-
-
-# ---------------------------------------------------------
-# Main GUI
-# ---------------------------------------------------------
-
-class MainWindow(QMainWindow):
+    packet_received = pyqtSignal(float, object)
+    status_changed = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("CAPT Motor Live Data")
-        self.resize(1300, 850)
+        self.running = False
+        self.sock = None
 
-        self.last_modified_time: float | None = None
-        self.is_monitoring = False
-
-        self.create_interface()
-        self.create_toolbar()
-        self.create_timer()
-
-        # Start reading the CSV when the program opens.
-        self.start_monitoring()
-
-    # -----------------------------------------------------
-    # Interface
-    # -----------------------------------------------------
-
-    def create_interface(self) -> None:
-        """
-        Create the tabs, table, plots and status labels.
-        """
-
-        self.tabs = QTabWidget()
-
-        # --------------------------
-        # Table tab
-        # --------------------------
-
-        self.table_tab = QWidget()
-        table_layout = QVBoxLayout()
-
-        self.info_label = QLabel(
-            "Waiting for CSV data..."
-        )
-
-        self.info_label.setAlignment(
-            Qt.AlignmentFlag.AlignLeft
-            | Qt.AlignmentFlag.AlignVCenter
-        )
-
-        self.table = QTableWidget()
-
-        self.table.setAlternatingRowColors(True)
-
-        self.table.setEditTriggers(
-            QTableWidget.EditTrigger.NoEditTriggers
-        )
-
-        table_layout.addWidget(self.info_label)
-        table_layout.addWidget(self.table)
-
-        self.table_tab.setLayout(table_layout)
-
-        self.tabs.addTab(
-            self.table_tab,
-            "CSV Data",
-        )
-
-        # --------------------------
-        # Plot tab
-        # --------------------------
-
-        self.plot_tab = QWidget()
-        plot_layout = QVBoxLayout()
-
-        self.plot_info_label = QLabel(
-            "The last three signals will be plotted here."
-        )
-
-        self.figure = Figure(
-            figsize=(10, 7)
-        )
-
-        self.canvas = FigureCanvas(
-            self.figure
-        )
-
-        plot_layout.addWidget(
-            self.plot_info_label
-        )
-
-        plot_layout.addWidget(
-            self.canvas
-        )
-
-        self.plot_tab.setLayout(
-            plot_layout
-        )
-
-        self.tabs.addTab(
-            self.plot_tab,
-            "Last Three Signals",
-        )
-
-        # --------------------------
-        # Central widget
-        # --------------------------
-
-        central_layout = QVBoxLayout()
-        central_layout.addWidget(self.tabs)
-
-        central_widget = QWidget()
-        central_widget.setLayout(
-            central_layout
-        )
-
-        self.setCentralWidget(
-            central_widget
-        )
-
-        self.setStatusBar(
-            QStatusBar(self)
-        )
-
-    # -----------------------------------------------------
-    # Toolbar
-    # -----------------------------------------------------
-
-    def create_toolbar(self) -> None:
-        """
-        Create toolbar actions.
-        """
-
-        toolbar = QToolBar(
-            "Main Toolbar"
-        )
-
-        toolbar.setIconSize(
-            QSize(26, 26)
-        )
-
-        self.addToolBar(toolbar)
-
-        # Start
-        self.start_action = QAction(
-            QIcon("start_icon.png"),
-            "Start monitoring",
-            self,
-        )
-
-        self.start_action.setStatusTip(
-            "Start reading updated CSV values"
-        )
-
-        self.start_action.triggered.connect(
-            self.start_monitoring
-        )
-
-        toolbar.addAction(
-            self.start_action
-        )
-
-        # Stop
-        self.stop_action = QAction(
-            "Stop monitoring",
-            self,
-        )
-
-        self.stop_action.setStatusTip(
-            "Stop automatic CSV updates"
-        )
-
-        self.stop_action.triggered.connect(
-            self.stop_monitoring
-        )
-
-        toolbar.addAction(
-            self.stop_action
-        )
-
-        # Reload
-        self.reload_action = QAction(
-            "Reload now",
-            self,
-        )
-
-        self.reload_action.setStatusTip(
-            "Immediately reload the CSV file"
-        )
-
-        self.reload_action.triggered.connect(
-            lambda: self.update_from_file(
-                force=True
-            )
-        )
-
-        toolbar.addAction(
-            self.reload_action
-        )
-
-    # -----------------------------------------------------
-    # Update timer
-    # -----------------------------------------------------
-
-    def create_timer(self) -> None:
-        """
-        Create a timer that checks whether the CSV changed.
-        """
-
-        self.timer = QTimer(self)
-
-        self.timer.setInterval(
-            UPDATE_INTERVAL_MS
-        )
-
-        self.timer.timeout.connect(
-            self.update_from_file
-        )
-
-    def start_monitoring(self) -> None:
-        """
-        Start automatically monitoring the CSV file.
-        """
-
-        self.is_monitoring = True
-
-        self.timer.start()
-
-        self.update_from_file(
-            force=True
-        )
-
-        self.statusBar().showMessage(
-            f"Monitoring {CSV_FILE.name} every "
-            f"{UPDATE_INTERVAL_MS} ms"
-        )
-
-    def stop_monitoring(self) -> None:
-        """
-        Stop automatically monitoring the CSV file.
-        """
-
-        self.is_monitoring = False
-
-        self.timer.stop()
-
-        self.statusBar().showMessage(
-            "CSV monitoring stopped"
-        )
-
-    # -----------------------------------------------------
-    # Read and refresh
-    # -----------------------------------------------------
-
-    def update_from_file(
-        self,
-        force: bool = False,
-    ) -> None:
-        """
-        Reload the CSV only when it changes.
-
-        force=True reloads the file regardless
-        of its modification timestamp.
-        """
-
-        if not force and not self.is_monitoring:
-            return
-
+    def run(self):
         try:
-            if not CSV_FILE.exists():
-                self.info_label.setText(
-                    f"File not found: "
-                    f"{CSV_FILE.resolve()}"
-                )
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-                self.statusBar().showMessage(
-                    "CSV file not found"
-                )
+            # Allows the port to be reused after restarting the program.
+            self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-                return
+            self.sock.bind((UDP_IP, UDP_PORT))
 
-            current_modified_time = (
-                CSV_FILE.stat().st_mtime
+            # A timeout allows the thread to check whether it should stop.
+            self.sock.settimeout(0.5)
+
+            self.running = True
+
+            self.status_changed.emit(
+                f"Listening on {UDP_IP}:{UDP_PORT}"
             )
 
-            # Skip reloading when the file did not change.
-            if (
-                not force
-                and self.last_modified_time
-                == current_modified_time
-            ):
-                return
+            while self.running:
+                try:
+                    packet, sender = self.sock.recvfrom(4096)
 
-            data_df = load_dspace_csv(
-                CSV_FILE
-            )
+                except socket.timeout:
+                    continue
 
-            self.display_dataframe(
-                data_df
-            )
+                except OSError:
+                    break
 
-            self.update_plots(
-                data_df
-            )
-
-            self.last_modified_time = (
-                current_modified_time
-            )
-
-            self.info_label.setText(
-                f"File: {CSV_FILE.name} | "
-                f"Rows: {len(data_df)} | "
-                f"Signals: {len(data_df.columns)}"
-            )
-
-            self.statusBar().showMessage(
-                "CSV data updated successfully"
-            )
-
-        except PermissionError:
-            # The CSV may briefly be locked while dSPACE writes to it.
-            self.statusBar().showMessage(
-                "CSV is currently being written. "
-                "Retrying..."
-            )
-
-        except (
-            FileNotFoundError,
-            ValueError,
-            csv.Error,
-        ) as error:
-
-            self.statusBar().showMessage(
-                str(error)
-            )
-
-        except Exception as error:
-            self.statusBar().showMessage(
-                f"Unexpected CSV error: {error}"
-            )
-
-    # -----------------------------------------------------
-    # Table
-    # -----------------------------------------------------
-
-    def display_dataframe(
-        self,
-        data_df: pd.DataFrame,
-    ) -> None:
-        """
-        Display every row and column in the table.
-        """
-
-        previous_vertical_scroll = (
-            self.table
-            .verticalScrollBar()
-            .value()
-        )
-
-        previous_horizontal_scroll = (
-            self.table
-            .horizontalScrollBar()
-            .value()
-        )
-
-        self.table.setUpdatesEnabled(
-            False
-        )
-
-        try:
-            self.table.clear()
-
-            self.table.setRowCount(
-                len(data_df)
-            )
-
-            self.table.setColumnCount(
-                len(data_df.columns)
-            )
-
-            self.table.setHorizontalHeaderLabels(
-                [
-                    str(column)
-                    for column in data_df.columns
-                ]
-            )
-
-            for row_index, row in enumerate(
-                data_df.itertuples(
-                    index=False,
-                    name=None,
-                )
-            ):
-                for column_index, value in enumerate(row):
-
-                    if pd.isna(value):
-                        displayed_value = ""
-                    else:
-                        displayed_value = (
-                            f"{value:.6g}"
-                        )
-
-                    item = QTableWidgetItem(
-                        displayed_value
+                if len(packet) != EXPECTED_PACKET_SIZE:
+                    self.status_changed.emit(
+                        f"Rejected packet from {sender[0]}: "
+                        f"received {len(packet)} bytes, "
+                        f"expected {EXPECTED_PACKET_SIZE} bytes"
                     )
+                    continue
 
-                    item.setTextAlignment(
-                        Qt.AlignmentFlag.AlignRight
-                        | Qt.AlignmentFlag.AlignVCenter
+                try:
+                    values = struct.unpack(PACKET_FORMAT, packet)
+
+                except struct.error as error:
+                    self.status_changed.emit(
+                        f"Packet decoding error: {error}"
                     )
+                    continue
 
-                    self.table.setItem(
-                        row_index,
-                        column_index,
-                        item,
-                    )
+                timestamp = time.perf_counter()
 
-            # Resize only after all cells are added.
-            self.table.resizeColumnsToContents()
+                # Send timestamp and values to the GUI thread.
+                self.packet_received.emit(timestamp, values)
 
-            self.table.verticalScrollBar().setValue(
-                previous_vertical_scroll
-            )
-
-            self.table.horizontalScrollBar().setValue(
-                previous_horizontal_scroll
-            )
+        except OSError as error:
+            self.status_changed.emit(f"UDP error: {error}")
 
         finally:
-            self.table.setUpdatesEnabled(
-                True
+            if self.sock is not None:
+                self.sock.close()
+
+            self.sock = None
+            self.running = False
+
+    def stop(self):
+        self.running = False
+
+        if self.sock is not None:
+            try:
+                self.sock.close()
+            except OSError:
+                pass
+
+        self.wait(2000)
+
+
+# ============================================================
+# MAIN GUI
+# ============================================================
+
+class LivePlotWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+
+        self.setWindowTitle("dSPACE Live Signal Monitor")
+        self.resize(1200, 900)
+
+        # Relative time reference.
+        self.start_time = None
+
+        # Buffers for timestamps and all six signals.
+        self.time_buffer = deque(maxlen=HISTORY_SIZE)
+
+        self.signal_buffers = [
+            deque(maxlen=HISTORY_SIZE)
+            for _ in range(NUM_SIGNALS)
+        ]
+
+        # Latest values received from the UDP thread.
+        self.latest_timestamp = None
+        self.latest_values = None
+
+        # CSV state.
+        self.csv_handle = None
+        self.csv_writer = None
+
+        self.received_packet_count = 0
+        self.last_packet_display_count = 0
+
+        self.setup_interface()
+        self.setup_receiver()
+        self.setup_timers()
+
+    def setup_interface(self):
+        central_widget = QWidget()
+        main_layout = QVBoxLayout(central_widget)
+
+        self.status_label = QLabel(
+            f"Waiting for dSPACE data on UDP port {UDP_PORT}..."
+        )
+        main_layout.addWidget(self.status_label)
+
+        self.value_label = QLabel("No signal values received")
+        main_layout.addWidget(self.value_label)
+
+        self.record_checkbox = QCheckBox("Record received samples to CSV")
+        self.record_checkbox.stateChanged.connect(
+            self.set_csv_recording
+        )
+        main_layout.addWidget(self.record_checkbox)
+
+        self.clear_button = QPushButton("Clear plots")
+        self.clear_button.clicked.connect(self.clear_plots)
+        main_layout.addWidget(self.clear_button)
+
+        self.plot_widget = pg.GraphicsLayoutWidget()
+        main_layout.addWidget(self.plot_widget)
+
+        self.plots = []
+        self.curves = []
+
+        for index, (name, unit) in enumerate(
+            zip(SIGNAL_NAMES, SIGNAL_UNITS)
+        ):
+            plot = self.plot_widget.addPlot(
+                row=index,
+                col=0,
+                title=name,
             )
 
-    # -----------------------------------------------------
-    # Plots
-    # -----------------------------------------------------
+            plot.setLabel("left", name, units=unit)
+            plot.setLabel("bottom", "Time", units="s")
+            plot.showGrid(x=True, y=True, alpha=0.3)
 
-    def update_plots(
-        self,
-        data_df: pd.DataFrame,
-    ) -> None:
+            curve = plot.plot()
+
+            self.plots.append(plot)
+            self.curves.append(curve)
+
+        # Keep all time axes synchronized.
+        for plot in self.plots[1:]:
+            plot.setXLink(self.plots[0])
+
+        self.setCentralWidget(central_widget)
+
+    def setup_receiver(self):
+        self.receiver = UDPReceiver()
+
+        self.receiver.packet_received.connect(
+            self.handle_packet
+        )
+
+        self.receiver.status_changed.connect(
+            self.status_label.setText
+        )
+
+        self.receiver.start()
+
+    def setup_timers(self):
+        # Redraw plots at a lower frequency than packet reception.
+        self.plot_timer = QTimer(self)
+        self.plot_timer.timeout.connect(self.update_plots)
+        self.plot_timer.start(GUI_UPDATE_MS)
+
+        # Update packet-rate information once per second.
+        self.statistics_timer = QTimer(self)
+        self.statistics_timer.timeout.connect(
+            self.update_statistics
+        )
+        self.statistics_timer.start(1000)
+
+    def handle_packet(self, timestamp, values):
         """
-        Plot the last three signal columns.
-
-        The first DataFrame column is assumed to be the
-        time or sample column when possible.
+        Called whenever the UDP thread receives a complete packet.
         """
 
-        self.figure.clear()
+        if self.start_time is None:
+            self.start_time = timestamp
 
-        if data_df.empty:
-            self.plot_info_label.setText(
-                "No data is available for plotting."
+        relative_time = timestamp - self.start_time
+
+        self.time_buffer.append(relative_time)
+
+        for index, value in enumerate(values):
+            self.signal_buffers[index].append(value)
+
+        self.latest_timestamp = relative_time
+        self.latest_values = values
+        self.received_packet_count += 1
+
+        if self.csv_writer is not None:
+            self.csv_writer.writerow(
+                [relative_time, *values]
             )
 
-            self.canvas.draw_idle()
+            # Flush so that the CSV is updated while acquisition runs.
+            self.csv_handle.flush()
+
+    def update_plots(self):
+        """
+        Updates all six plots using the most recent buffer contents.
+        """
+
+        if not self.time_buffer:
             return
 
-        if len(data_df.columns) < 3:
-            self.plot_info_label.setText(
-                "At least three signals are required."
+        times = np.asarray(self.time_buffer, dtype=np.float64)
+
+        for curve, buffer in zip(
+            self.curves,
+            self.signal_buffers,
+        ):
+            values = np.asarray(buffer, dtype=np.float32)
+            curve.setData(times, values)
+
+        # Show a moving time window.
+        latest_time = times[-1]
+
+        if latest_time > HISTORY_SECONDS:
+            minimum_time = latest_time - HISTORY_SECONDS
+            maximum_time = latest_time
+
+            self.plots[0].setXRange(
+                minimum_time,
+                maximum_time,
+                padding=0,
             )
 
-            self.canvas.draw_idle()
-            return
+        if self.latest_values is not None:
+            value_text = " | ".join(
+                f"{name}: {value:.4f} {unit}"
+                for name, value, unit in zip(
+                    SIGNAL_NAMES,
+                    self.latest_values,
+                    SIGNAL_UNITS,
+                )
+            )
 
-        # Use only recent samples to keep rendering fast.
-        plot_df = (
-            data_df
-            .tail(MAX_PLOT_SAMPLES)
-            .reset_index(drop=True)
+            self.value_label.setText(value_text)
+
+    def update_statistics(self):
+        packets_per_second = (
+            self.received_packet_count
+            - self.last_packet_display_count
         )
 
-        # Plot the last three signal columns.
-        signal_columns = list(
-            plot_df.columns[-3:]
+        self.last_packet_display_count = (
+            self.received_packet_count
         )
 
-        # Use the first column as x-axis if it is not one
-        # of the three plotted signals.
-        possible_time_column = (
-            plot_df.columns[0]
+        recording_text = (
+            f"Recording to {CSV_FILE}"
+            if self.csv_writer is not None
+            else "CSV recording disabled"
         )
 
-        if possible_time_column not in signal_columns:
-            x_values = plot_df[
-                possible_time_column
-            ]
+        self.status_label.setText(
+            f"Receiving on port {UDP_PORT} | "
+            f"{packets_per_second} packets/s | "
+            f"{recording_text}"
+        )
 
-            x_label = possible_time_column
+    def set_csv_recording(self, state):
+        """
+        Starts or stops live CSV recording.
+        """
+
+        recording_enabled = self.record_checkbox.isChecked()
+
+        if recording_enabled:
+            try:
+                new_file = not CSV_FILE.exists()
+
+                self.csv_handle = CSV_FILE.open(
+                    mode="a",
+                    newline="",
+                    encoding="utf-8",
+                )
+
+                self.csv_writer = csv.writer(self.csv_handle)
+
+                if new_file or CSV_FILE.stat().st_size == 0:
+                    self.csv_writer.writerow(
+                        ["Time_s", *SIGNAL_NAMES]
+                    )
+                    self.csv_handle.flush()
+
+                self.status_label.setText(
+                    f"Recording data to {CSV_FILE.resolve()}"
+                )
+
+            except OSError as error:
+                self.status_label.setText(
+                    f"Could not open CSV file: {error}"
+                )
+
+                self.record_checkbox.blockSignals(True)
+                self.record_checkbox.setChecked(False)
+                self.record_checkbox.blockSignals(False)
+
+                self.csv_handle = None
+                self.csv_writer = None
 
         else:
-            # Otherwise use sample number.
-            x_values = plot_df.index
-            x_label = "Sample"
+            self.close_csv_file()
 
-        self.plot_info_label.setText(
-            "Showing the last "
-            f"{len(plot_df)} samples of: "
-            + ", ".join(signal_columns)
-        )
+    def close_csv_file(self):
+        if self.csv_handle is not None:
+            try:
+                self.csv_handle.flush()
+                self.csv_handle.close()
+            except OSError:
+                pass
 
-        axes = []
+        self.csv_handle = None
+        self.csv_writer = None
 
-        for index, signal_name in enumerate(
-            signal_columns
-        ):
-            # sharex keeps all three plots aligned.
-            if index == 0:
-                axis = self.figure.add_subplot(
-                    3,
-                    1,
-                    index + 1,
-                )
-            else:
-                axis = self.figure.add_subplot(
-                    3,
-                    1,
-                    index + 1,
-                    sharex=axes[0],
-                )
+    def clear_plots(self):
+        self.time_buffer.clear()
 
-            axes.append(axis)
+        for buffer in self.signal_buffers:
+            buffer.clear()
 
-            valid_values = (
-                plot_df[signal_name]
-                .notna()
-            )
+        for curve in self.curves:
+            curve.clear()
 
-            axis.plot(
-                x_values[valid_values],
-                plot_df.loc[
-                    valid_values,
-                    signal_name,
-                ],
-            )
+        self.start_time = None
+        self.latest_timestamp = None
+        self.latest_values = None
 
-            axis.set_title(
-                signal_name
-            )
+        self.value_label.setText("No signal values received")
 
-            axis.set_ylabel(
-                "Value"
-            )
+    def closeEvent(self, event):
+        """
+        Cleanly closes the socket, thread, timers and CSV file.
+        """
 
-            axis.grid(
-                True,
-                alpha=0.3,
-            )
+        self.plot_timer.stop()
+        self.statistics_timer.stop()
 
-            if index < 2:
-                axis.tick_params(
-                    labelbottom=False
-                )
+        self.receiver.stop()
+        self.close_csv_file()
 
-        axes[-1].set_xlabel(
-            x_label
-        )
-
-        self.figure.tight_layout()
-
-        self.canvas.draw_idle()
+        event.accept()
 
 
-# ---------------------------------------------------------
-# Program entry point
-# ---------------------------------------------------------
+# ============================================================
+# PROGRAM ENTRY POINT
+# ============================================================
 
-def main() -> None:
+def main():
+    pg.setConfigOptions(
+        antialias=True,
+    )
+
     app = QApplication(sys.argv)
 
-    window = MainWindow()
+    window = LivePlotWindow()
     window.show()
 
-    sys.exit(
-        app.exec()
-    )
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":
     main()
-
 
 # import sys
 # from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QLineEdit,QVBoxLayout, QWidget
