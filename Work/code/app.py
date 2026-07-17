@@ -666,132 +666,93 @@ class MainWindow(QMainWindow):
     # -----------------------------------------------------
     # Plots
     # -----------------------------------------------------
+def update_plots(
+    self,
+    data_df: pd.DataFrame,
+) -> None:
+    """
+    Plot every logged signal.
 
-    def update_plots(
-        self,
-        data_df: pd.DataFrame,
-    ) -> None:
-        """
-        Plot the last three signal columns.
+    The first column is assumed to be the time axis whenever possible.
+    """
 
-        The first DataFrame column is assumed to be the
-        time or sample column when possible.
-        """
+    self.figure.clear()
 
-        self.figure.clear()
-
-        if data_df.empty:
-            self.plot_info_label.setText(
-                "No data is available for plotting."
-            )
-
-            self.canvas.draw_idle()
-            return
-
-        if len(data_df.columns) < 3:
-            self.plot_info_label.setText(
-                "At least three signals are required."
-            )
-
-            self.canvas.draw_idle()
-            return
-
-        # Use only recent samples to keep rendering fast.
-        plot_df = (
-            data_df
-            .tail(MAX_PLOT_SAMPLES)
-            .reset_index(drop=True)
-        )
-
-        # Plot the last three signal columns.
-        signal_columns = list(
-            plot_df.columns[-3:]
-        )
-
-        # Use the first column as x-axis if it is not one
-        # of the three plotted signals.
-        possible_time_column = (
-            plot_df.columns[0]
-        )
-
-        if possible_time_column not in signal_columns:
-            x_values = plot_df[
-                possible_time_column
-            ]
-
-            x_label = possible_time_column
-
-        else:
-            # Otherwise use sample number.
-            x_values = plot_df.index
-            x_label = "Sample"
-
+    if data_df.empty:
         self.plot_info_label.setText(
-            "Showing the last "
-            f"{len(plot_df)} samples of: "
-            + ", ".join(signal_columns)
+            "No data available."
         )
-
-        axes = []
-
-        for index, signal_name in enumerate(
-            signal_columns
-        ):
-            # sharex keeps all three plots aligned.
-            if index == 0:
-                axis = self.figure.add_subplot(
-                    3,
-                    1,
-                    index + 1,
-                )
-            else:
-                axis = self.figure.add_subplot(
-                    3,
-                    1,
-                    index + 1,
-                    sharex=axes[0],
-                )
-
-            axes.append(axis)
-
-            valid_values = (
-                plot_df[signal_name]
-                .notna()
-            )
-
-            axis.plot(
-                x_values[valid_values],
-                plot_df.loc[
-                    valid_values,
-                    signal_name,
-                ],
-            )
-
-            axis.set_title(
-                signal_name
-            )
-
-            axis.set_ylabel(
-                "Value"
-            )
-
-            axis.grid(
-                True,
-                alpha=0.3,
-            )
-
-            if index < 2:
-                axis.tick_params(
-                    labelbottom=False
-                )
-
-        axes[-1].set_xlabel(
-            x_label
-        )
-
-        self.figure.tight_layout()
-
         self.canvas.draw_idle()
+        return
+
+    plot_df = (
+        data_df.tail(MAX_PLOT_SAMPLES)
+        .reset_index(drop=True)
+    )
+
+    columns = list(plot_df.columns)
+
+    # Assume first column is time
+    time_column = columns[0]
+    signal_columns = columns[1:]
+
+    if len(signal_columns) == 0:
+        self.plot_info_label.setText(
+            "No signals found."
+        )
+        self.canvas.draw_idle()
+        return
+
+    x_values = plot_df[time_column]
+
+    self.plot_info_label.setText(
+        f"Displaying {len(signal_columns)} signals "
+        f"({len(plot_df)} samples)"
+    )
+
+    axes = []
+
+    for i, signal in enumerate(signal_columns):
+
+        if i == 0:
+            ax = self.figure.add_subplot(
+                len(signal_columns),
+                1,
+                i + 1
+            )
+        else:
+            ax = self.figure.add_subplot(
+                len(signal_columns),
+                1,
+                i + 1,
+                sharex=axes[0]
+            )
+
+        axes.append(ax)
+
+        valid = plot_df[signal].notna()
+
+        ax.plot(
+            x_values[valid],
+            plot_df.loc[valid, signal],
+            linewidth=1.2
+        )
+
+        ax.set_ylabel(signal, fontsize=8)
+
+        ax.grid(
+            True,
+            alpha=0.3
+        )
+
+        if i != len(signal_columns) - 1:
+            ax.tick_params(labelbottom=False)
+
+    axes[-1].set_xlabel(time_column)
+
+    self.figure.tight_layout()
+
+    self.canvas.draw_idle()
 
 
 # ---------------------------------------------------------
