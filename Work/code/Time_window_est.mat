@@ -1,3 +1,16 @@
+arning: Reference to non-existent field 'Tw'. 
+> In Simulink/SimulationOutput/get
+  In Simulink/SimulationOutput/subsref
+  In sofia_udp_test (line 103) 
+Dot indexing is not supported for variables of this type.
+
+Error in sofia_udp_test (line 108)
+Tw = squeeze(Tw_d.Data);
+ 
+
+
+
+
 function time_win = Time_window_est(E_err, lambda_d, Z, Zd)
 %#codegen
 %
