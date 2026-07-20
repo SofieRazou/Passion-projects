@@ -1,0 +1,176 @@
+function time_win = Time_window_est(E_err, lambda_d, Z, Zd)
+%#codegen
+%
+% Estimates an adaptive observation window using:
+%   1. dominant closed-loop eigenvalue,
+%   2. normalized energy error,
+%   3. normalized impedance error,
+%   4. zero-crossing-rate history of the energy-error signal.
+%
+% Inputs:
+%   E_err     - instantaneous energy/transparency error [J]
+%   lambda_d  - dominant closed-loop eigenvalue
+%   Z         - measured impedance, scalar or fixed-size vector
+%   Zd        - desired impedance, scalar or fixed-size vector
+%
+% Output:
+%   time_win  - estimated time window [s]
+
+persistent E_history
+persistent history_index
+persistent sample_count
+persistent zcr_filtered
+persistent t_prev
+
+%% Parameters
+Tmin = 0.01;             % Minimum window: 10 ms
+Tmax = 0.50;             % Maximum window: 500 ms
+
+Eref = 1e-3;             % Reference energy [J]
+tau_min = 1e-3;          % Minimum characteristic time [s]
+tau_max = 0.50;          % Maximum characteristic time [s]
+
+history_length = 100;    % Number of stored E_err samples
+
+alpha_zcr = 0.10;        % ZCR low-pass filtering factor
+alpha_time = 0.10;       % Window low-pass filtering factor
+
+k_energy = 1.0;          % Energy-error contribution
+k_impedance = 1.0;       % Impedance-error contribution
+k_zcr = 2.0;             % ZCR contribution
+
+zero_threshold = 1e-9;   % Prevent noise around zero from causing crossings
+
+%% Initialization
+if isempty(E_history)
+    E_history = zeros(history_length, 1);
+    history_index = 1;
+    sample_count = 0;
+    zcr_filtered = 0;
+    t_prev = 0.05;       % Initial window: 50 ms
+end
+
+%% Store current energy-error sample
+E_history(history_index) = E_err;
+
+history_index = history_index + 1;
+
+if history_index > history_length
+    history_index = 1;
+end
+
+if sample_count < history_length
+    sample_count = sample_count + 1;
+end
+
+%% Compute zero-crossing rate from available history
+zero_crossings = 0;
+
+if sample_count >= 2
+
+    % Reconstruct the history in chronological order.
+    ordered_history = zeros(history_length, 1);
+
+    if sample_count < history_length
+        ordered_history(1:sample_count) = E_history(1:sample_count);
+    else
+        output_index = 1;
+
+        for input_index = history_index:history_length
+            ordered_history(output_index) = E_history(input_index);
+            output_index = output_index + 1;
+        end
+
+        for input_index = 1:(history_index - 1)
+            ordered_history(output_index) = E_history(input_index);
+            output_index = output_index + 1;
+        end
+    end
+
+    % Count sign changes while ignoring very small values.
+    for i = 2:sample_count
+
+        previous_value = ordered_history(i - 1);
+        current_value = ordered_history(i);
+
+        previous_is_positive = previous_value > zero_threshold;
+        previous_is_negative = previous_value < -zero_threshold;
+
+        current_is_positive = current_value > zero_threshold;
+        current_is_negative = current_value < -zero_threshold;
+
+        crossed_zero = ...
+            (previous_is_positive && current_is_negative) || ...
+            (previous_is_negative && current_is_positive);
+
+        if crossed_zero
+            zero_crossings = zero_crossings + 1;
+        end
+    end
+
+    % Normalized ZCR in the interval [0,1].
+    zcr_current = zero_crossings / (sample_count - 1);
+
+else
+    zcr_current = 0;
+end
+
+%% Smooth the ZCR estimate
+zcr_filtered = ...
+    (1 - alpha_zcr) * zcr_filtered + ...
+    alpha_zcr * zcr_current;
+
+%% Characteristic system time from dominant eigenvalue
+lambda_real = real(lambda_d);
+
+if lambda_real < -1e-9
+    tau_c = -1 / lambda_real;
+else
+    % Unstable or nearly marginal eigenvalue.
+    % Select the largest permitted characteristic time.
+    tau_c = tau_max;
+end
+
+tau_c = min(max(tau_c, tau_min), tau_max);
+
+%% Normalized impedance error
+Zd_norm = norm(Zd);
+
+if Zd_norm < 1e-12
+    Zd_norm = 1e-12;
+end
+
+impedance_error = norm(Z - Zd) / Zd_norm;
+
+%% Normalized energy error
+energy_error = abs(E_err) / max(Eref, 1e-12);
+
+%% Limit normalized errors to prevent extreme window commands
+energy_error = min(energy_error, 10);
+impedance_error = min(impedance_error, 10);
+
+%% Adaptive candidate window
+%
+% Larger energy or impedance error increases the observation window.
+% Larger ZCR decreases it so that the controller responds more quickly
+% to rapidly changing interaction dynamics.
+
+time_candidate = tau_c * ...
+    (1 + k_energy * energy_error + ...
+         k_impedance * impedance_error) / ...
+    (1 + k_zcr * zcr_filtered);
+
+%% Saturate candidate window
+time_candidate = min(max(time_candidate, Tmin), Tmax);
+
+%% Smooth the time-window command
+time_win = ...
+    (1 - alpha_time) * t_prev + ...
+    alpha_time * time_candidate;
+
+%% Final saturation and state update
+time_win = min(max(time_win, Tmin), Tmax);
+
+t_prev = time_win;
+
+end
