@@ -56,7 +56,7 @@ esp_0 = 0.01;
 
 %Linear Human state-space model parameters
 %-- init --
-kh =1;
+kh = 1;
 Mh = 1;
 bh = 1;
 
@@ -86,7 +86,7 @@ disp(eigs_human_0);
 figure;
 bode(human_0);
 grid on;
-%saveas(gcf, "C:\Users\javot\Desktop\sofia_code\zero_human_bode_plot.png");
+saveas(gcf, "C:\Users\javot\Desktop\sofia_code\zero_human_bode_plot.png");
 
 Th = 0.1;
 %Estimation of human operator's parameters
@@ -100,12 +100,16 @@ simOut = sim('controller1_SR', ...
 %as timeseries
 angle_d = simOut.angle;
 torque_d = simOut.torque;
+Tw_d = simOut.Tw;
+
 t = angle_d.Time; %simulation time logs
 angle = squeeze(angle_d.Data);
 torque = squeeze(torque_d.Data);
+Tw = squeeze(Tw_d.Data);
 
 angle = angle(:);
 torque = torque(:);
+Tw = Tw(:);
 
 data = iddata(angle, torque, Th);
 data.InputName = 'Torque (Nm)';
@@ -134,7 +138,7 @@ BH = double(BH);
 CH = double(CH);
 DH = double(DH);
 
-% Make variables available to Simulink
+% Make variables available to model 
 assignin('base', 'AH', AH);
 assignin('base', 'BH', BH);
 assignin('base', 'CH', CH);
@@ -171,5 +175,13 @@ disp(eigs_human);
 figure;
 bode(human);
 grid on;
-%saveas(gcf, "C:\Users\javot\Desktop\sofia_code\human_bode_plot.png");
+saveas(gcf, "C:\Users\javot\Desktop\sofia_code\human_bode_plot.png");
+
+%Evaluate Estimation
+
+mse = human.Report.Fit.MSE;
+disp(sqrt(mse));
+
+%Energy control feedback parameters
+deltaT = 0.001;
 
