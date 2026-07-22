@@ -1,3 +1,8 @@
+
+Execution Error: (-2147352567, 'Exception occurred.', (0, 'dSPACE.PlatformManagement.Foundation', 'Value does not fall within the expected range.', None, 0, -2147024809), None)
+
+
+
 import win32com.client
 import time
 import sys
