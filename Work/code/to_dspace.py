@@ -1,5 +1,13 @@
-myVar = ActiveExperiment.Variables.Item("Model Root/Subsystem2/Torque")
+import dspace.controlbars.interpreter as cd_env
+
+app = cd_env.Application
+experiment = app.ActiveExperiment
+platform = experiment.Platforms.Item(1)
+dataset = platform.ActiveVariableDescription.DataSets.WorkingDataSet
+
+myVar = dataset.Parameter.Item("Model Root/Subsystem2/Torque")
 print(myVar.Value)
+
 
 
 import win32com.client
