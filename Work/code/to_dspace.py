@@ -1,8 +1,7 @@
-Traceback (most recent call last):
-  File "<interactive input>", line 1, in <module>
-  File "C:\Program Files\Python39\lib\site-packages\win32com\client\dynamic.py", line 572, in __getattr__
-    raise AttributeError("%s.%s" % (self._username_, attr))
-AttributeError: <unknown>.Variabl
+plat = Application.ActiveExperiment.Platforms.Item(1)
+map = plat.ActiveVariableDescription.DataSets.WorkingDataSet
+myVar = map.Parameter.Item("Model Root/Subsystem2/Torque")
+print(myVar.Value)
 
 
 import win32com.client
