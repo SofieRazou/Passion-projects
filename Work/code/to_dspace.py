@@ -1,9 +1,15 @@
-for i in range(1, 6): print(Application.ActiveExperiment.Platforms.Item(1).ActiveVariableDescription.DataSets.WorkingDataSet.Parameter.Item(i).Path)
+print(Application.ActiveProjectRoot)
+<COMObject <unknown>>
+print(dir(Application.ActiveProjectRoot))
+['Activate', 'AddRef', 'GetIDsOfNames', 'GetTypeInfo', 'GetTypeInfoCount', 'Invoke', 'PathName', 'Projects', 'QueryInterface', 'Release', 'Remove', '_ApplyTypes_', '_FlagAsMethod', '_LazyAddAttr_', '_NewEnum', '_Release_', '_UpdateWithITypeInfo_', '__AttrToID__', '__LazyMap__', '__bool__', '__call__', '__class__', '__delattr__', '__dict__', '__dir__', '__doc__', '__eq__', '__format__', '__ge__', '__getattr__', '__getattribute__', '__getitem__', '__gt__', '__hash__', '__init__', '__init_subclass__', '__int__', '__iter__', '__le__', '__len__', '__lt__', '__module__', '__ne__', '__new__', '__reduce__', '__reduce_ex__', '__repr__', '__setattr__', '__setitem__', '__sizeof__', '__str__', '__subclasshook__', '__weakref__', '_builtMethods_', '_dir_ole_', '_enum_', '_find_dispatch_type_', '_get_good_object_', '_get_good_single_object_', '_lazydata_', '_make_method_', '_mapCachedItems_', '_oleobj_', '_olerepr_', '_print_details_', '_proc_', '_unicode_to_string_', '_username_', '_wrap_dispatch_']
+print(dir(Application.ActiveProjectRoot.Projects))
+['Add', 'AddRef', 'Contains', 'Count', 'GetEnumerator', 'GetIDsOfNames', 'GetTypeInfo', 'GetTypeInfoCount', 'Invoke', 'Item', 'OpenFromBackup', 'ProjectRoot', 'QueryInterface', 'Release', '_ApplyTypes_', '_FlagAsMethod', '_LazyAddAttr_', '_NewEnum', '_Release_', '_UpdateWithITypeInfo_', '__AttrToID__', '__LazyMap__', '__bool__', '__call__', '__class__', '__delattr__', '__dict__', '__dir__', '__doc__', '__eq__', '__format__', '__ge__', '__getattr__', '__getattribute__', '__getitem__', '__gt__', '__hash__', '__init__', '__init_subclass__', '__int__', '__iter__', '__le__', '__len__', '__lt__', '__module__', '__ne__', '__new__', '__reduce__', '__reduce_ex__', '__repr__', '__setattr__', '__setitem__', '__sizeof__', '__str__', '__subclasshook__', '__weakref__', '_builtMethods_', '_dir_ole_', '_enum_', '_find_dispatch_type_', '_get_good_object_', '_get_good_single_object_', '_lazydata_', '_make_method_', '_mapCachedItems_', '_oleobj_', '_olerepr_', '_print_details_', '_proc_', '_unicode_to_string_', '_username_', '_wrap_dispatch_']
+print(dir(Application.ActiveProjectRoot.Projects.Item))
+['__call__', '__class__', '__delattr__', '__dir__', '__doc__', '__eq__', '__format__', '__func__', '__ge__', '__get__', '__getattribute__', '__gt__', '__hash__', '__init__', '__init_subclass__', '__le__', '__lt__', '__ne__', '__new__', '__reduce__', '__reduce_ex__', '__repr__', '__self__', '__setattr__', '__sizeof__', '__str__', '__subclasshook__']
+print(dir(Application.ActiveProjectRoot.Projects.GetIDsOfNames))
 
-plat = Application.ActiveExperiment.Platforms.Item(1)
-map = plat.ActiveVariableDescription.DataSets.WorkingDataSet
-myVar = map.Parameter.Item("Model Root/Subsystem2/Torque")
-print(myVar.Value)
+['__call__', '__class__', '__delattr__', '__dir__', '__doc__', '__eq__', '__format__', '__func__', '__ge__', '__get__', '__getattribute__', '__gt__', '__hash__', '__init__', '__init_subclass__', '__le__', '__lt__', '__ne__', '__new__', '__reduce__', '__reduce_ex__', '__repr__', '__self__', '__setattr__', '__sizeof__', '__str__', '__subclasshook__']
+
 
 
 import win32com.client
