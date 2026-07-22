@@ -1,3 +1,5 @@
+for i in range(1, 6): print(Application.ActiveExperiment.Platforms.Item(1).ActiveVariableDescription.DataSets.WorkingDataSet.Parameter.Item(i).Path)
+
 plat = Application.ActiveExperiment.Platforms.Item(1)
 map = plat.ActiveVariableDescription.DataSets.WorkingDataSet
 myVar = map.Parameter.Item("Model Root/Subsystem2/Torque")
