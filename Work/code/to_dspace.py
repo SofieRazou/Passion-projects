@@ -3,34 +3,47 @@ import time
 import sys
 
 try:
-    # 1. Connect to the next-gen application layer
     cd = win32com.client.Dispatch("ControlDeskNG.Application")
-    print("Successfully connected to ControlDesk 7.5!")
-    
-    # 2. Safely grab the active experiment
+    print("Connected to ControlDesk 7.5!")
+
     experiment = cd.ActiveExperiment
     if experiment is None:
-        print("ERROR: No active experiment found. Please open an experiment in ControlDesk first.")
+        print("ERROR: No active experiment open in ControlDesk.")
+        sys.exit()
+
+    if experiment.Platforms.Count == 0:
+        print("ERROR: No hardware platform bound to this experiment.")
         sys.exit()
         
-    # 3. Get the variables list
-    variables = experiment.Variables
-    print("Successfully mapped ControlDesk variables!")
+    platform = experiment.Platforms.Item(1) 
+    print(f"Found Active Hardware Platform: {platform.Name}")
 
-    # 4. Target your specific Simulink signal path
-    # CHANGE THIS STRING to match your exact variable name in the ControlDesk tree!
-    my_signal = variables.Item("Model Root/Subsystem/MySignal")
+    var_desc = platform.ActiveVariableDescription
+    dataset = var_desc.DataSets.WorkingDataSet
+    print("Successfully hooked into the live dSPACE memory map.")
 
-    # Real-time polling loop
-    print("Starting live data stream... Press Ctrl+C to stop.")
+    test_path = "Model Root/Subsystem/MySignal" 
+
+    try:
+        my_signal = dataset.Parameter.Item(test_path)
+        print("Success! Target variable found.")
+    except Exception:
+        print(f"\nPath '{test_path}' not found in the live map.")
+        print("--------------------------------------------------")
+        print("PRINTING RECENT VARIABLES IN YOUR MODEL ENGINE:")
+        count = min(10, dataset.Parameter.Count)
+        for i in range(1, count + 1):
+            print(f"   Valid Path option: {dataset.Parameter.Item(i).Path}")
+        print("--------------------------------------------------")
+        sys.exit()
+
+    print("\nStreaming real-time data... Press Ctrl+C to stop.\n")
     while True:
         live_value = my_signal.Value
-        print(f"Live Data: {live_value}")
-        time.sleep(0.01) # Polls at ~100Hz
+        print(f"Live Variable Value: {live_value}")
+        time.sleep(0.01)
 
-except AttributeError as ae:
-    print(f"\nStructure Error: {ae}")
-    print("Verify that your project is fully loaded and you are 'Online' in ControlDesk.")
 except Exception as e:
-    print(f"\nAn error occurred: {e}")
+    print(f"\nExecution Error: {e}")
+
 
