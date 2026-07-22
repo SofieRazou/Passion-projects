@@ -1,8 +1,3 @@
-
-Execution Error: (-2147352567, 'Exception occurred.', (0, 'dSPACE.PlatformManagement.Foundation', 'Value does not fall within the expected range.', None, 0, -2147024809), None)
-
-
-
 import win32com.client
 import time
 import sys
@@ -16,17 +11,27 @@ try:
         print("ERROR: No active experiment open in ControlDesk.")
         sys.exit()
 
-    if experiment.Platforms.Count == 0:
-        print("ERROR: No hardware platform bound to this experiment.")
+    # SAFE CHECK: Loop through platforms instead of calling Item(1)
+    platform = None
+    for p in experiment.Platforms:
+        platform = p
+        break
+
+    if platform is None:
+        print("ERROR: No active hardware platform found in this experiment.")
         sys.exit()
         
-    platform = experiment.Platforms.Item(1) 
     print(f"Found Active Hardware Platform: {platform.Name}")
 
+    # SAFE CHECK: Verify the variable description is actually ready
     var_desc = platform.ActiveVariableDescription
-    dataset = var_desc.DataSets.WorkingDataSet
-    print("Successfully hooked into the live dSPACE memory map.")
+    if var_desc is None:
+        print("ERROR: Variable description file (.trc) is not loaded. Is ControlDesk Online?")
+        sys.exit()
 
+    dataset = var_desc.DataSets.WorkingDataSet
+    
+    # Change this to a real variable name from your Simulink model
     test_path = "Model Root/Subsystem/MySignal" 
 
     try:
