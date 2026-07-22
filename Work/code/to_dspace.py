@@ -1,13 +1,8 @@
-import dspace.controlbars.interpreter as cd_env
-
-app = cd_env.Application
-experiment = app.ActiveExperiment
-platform = experiment.Platforms.Item(1)
-dataset = platform.ActiveVariableDescription.DataSets.WorkingDataSet
-
-myVar = dataset.Parameter.Item("Model Root/Subsystem2/Torque")
-print(myVar.Value)
-
+Traceback (most recent call last):
+  File "<interactive input>", line 1, in <module>
+  File "C:\Program Files\Python39\lib\site-packages\win32com\client\dynamic.py", line 572, in __getattr__
+    raise AttributeError("%s.%s" % (self._username_, attr))
+AttributeError: <unknown>.Variabl
 
 
 import win32com.client
