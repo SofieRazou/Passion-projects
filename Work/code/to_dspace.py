@@ -1,8 +1,5 @@
-# Use WorkingDataSet and Parameter instead of Variables
-dataset = plat.ActiveVariableDescription.DataSets.WorkingDataSet
-mmyVar = dataset.Parameter.Item("Model Root/Subsystem2/Torque")
-print(mmyVar.Value)
-
+myVar = ActiveExperiment.Variables.Item("Model Root/Subsystem2/Torque")
+print(myVar.Value)
 
 
 import win32com.client
