@@ -1,3 +1,11 @@
+
+myVar =plat.ActiveVariableDescription.Variables[“Platform()://Model
+Root/Subsystem2/Torque”]
+
+SyntaxError: invalid character '“' (U+201C) (<interactive input>, line 2)
+
+
+
 import win32com.client
 import time
 import sys
