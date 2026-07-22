@@ -8,7 +8,11 @@ sock.bind((UDP_IP, UDP_PORT))
 
 print("Listening...")
 
-while True:
-    data, addr = sock.recvfrom(1024)
+try:
+    while True:
+        data, addr = sock.recvfrom(1024)
 
-    print("Received:", data.decode("utf-8"))
+        print("Received:", data.decode("utf-8"))
+
+except KeyboardInterrupt:
+        print("Exciting with Ctrl+C...")
