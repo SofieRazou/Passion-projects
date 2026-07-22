@@ -1,4 +1,8 @@
-mmyVar = plat.ActiveVariableDescription.Variables["Platform()://Model Root/Subsystem2/Torque"]
+# Use WorkingDataSet and Parameter instead of Variables
+dataset = plat.ActiveVariableDescription.DataSets.WorkingDataSet
+mmyVar = dataset.Parameter.Item("Model Root/Subsystem2/Torque")
+print(mmyVar.Value)
+
 
 
 import win32com.client
