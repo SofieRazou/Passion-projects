@@ -1,9 +1,15 @@
 clear;
 clc;
 
-%% Settings
-time_step = 0.01;   % Python writes approximately every 0.01 s
-u = 30;      % Run time [s]
+%% Vehicle and simulation settings
+time_step = 0.01;   % Sampling period [s]
+duration = 30;      % Total simulation duration [s]
+
+u = 30;             % Vehicle velocity [m/s]
+L = 1.0;            % Vehicle wheelbase [m]
+
+x = 0.0;            % Initial x-position [m]
+y = 0.0;            % Initial y-position [m]
 
 %% Shared-memory file
 filePath = "C:\Users\javot\Desktop\sofia_code\shared_data.bin";
@@ -12,10 +18,10 @@ if ~isfile(filePath)
     error("Shared-memory file not found: %s", filePath);
 end
 
-%% Memory layout:
-% Bytes 1-8:   uint64 sequence
-% Bytes 9-16:  double command 1
-% Bytes 17-24: double command 2
+%% Memory layout
+% Bytes 1-8:   uint64 sequence counter
+% Bytes 9-16:  double steering command
+% Bytes 17-24: double heading command
 
 sharedMemory = memmapfile( ...
     filePath, ...
@@ -47,16 +53,15 @@ while toc(startTime) < duration
         end
 
         newCommands = sharedMemory.Data.Values;
-
         sequenceAfter = sharedMemory.Data.Sequence;
 
-        % Accept only if Python did not write during the read
+        % Accept only a complete, unchanged sample
         validSample = ...
             sequenceBefore == sequenceAfter && ...
             mod(sequenceAfter, 2) == 0;
     end
 
-    %% Convert to a normal 1-by-2 MATLAB vector
+    %% Convert values to a 1-by-2 numeric vector
     commands = double(newCommands(:).');
 
     if numel(commands) ~= 2
@@ -65,38 +70,51 @@ while toc(startTime) < duration
             numel(commands));
     end
 
-    %% Read commands
+    %% Extract commands
     delta = commands(1);
     thetaCommand = commands(2);
 
-    %% Send commands to the driving environment
-    [xNew, yNew] = run_driving_venv(delta, thetaCommand, u, L, x, y, time_step);
+    %% Run one vehicle simulation step
+    [xNew, yNew] = run_driving_venv( ...
+        delta, ...
+        thetaCommand, ...
+        u, ...
+        L, ...
+        x, ...
+        y, ...
+        time_step);
 
-    %% Store returned position
+    %% Update vehicle position
+    x = xNew;
+    y = yNew;
+
+    %% Store trajectory
     cnt = cnt + 1;
 
     if cnt > size(trajectory, 1)
         trajectory = [trajectory; zeros(1000, 2)];
     end
 
-    trajectory(cnt, :) = [xNew, yNew];
+    trajectory(cnt, :) = [x, y];
 
-    %% Optional monitoring
+    %% Display current values
     fprintf( ...
         "delta = %.4f, theta = %.4f, x = %.4f, y = %.4f\n", ...
-        delta, thetaCommand, xNew, yNew);
+        delta, thetaCommand, x, y);
 
     pause(time_step);
 end
 
-%% Remove unused rows
+%% Remove unused trajectory rows
 trajectory = trajectory(1:cnt, :);
 
-%% Plot trajectory
+%% Plot vehicle trajectory
 figure;
 plot(trajectory(:, 1), trajectory(:, 2), "LineWidth", 1.5);
+
 xlabel("x [m]");
 ylabel("y [m]");
 title("Vehicle trajectory");
+
 grid on;
 axis equal;
