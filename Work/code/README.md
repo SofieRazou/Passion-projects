@@ -1,21 +1,8 @@
-self.stability_title = QLabel("Bode Plot and Stability Analysis")
-        self.stability_title.setAlignment(
-            Qt.AlignmentFlag.AlignCenter
-        )
-        self.stability_title.setObjectName("stabilityTitle")
-
-        self.stability_plot = QLabel()
-        self.stability_plot.setObjectName("stabilityImage")
-        self.stability_plot.setMinimumSize(600, 450)
-        self.stability_plot.setAlignment(
-            Qt.AlignmentFlag.AlignCenter
-        )
-
-        self.stability_layout.addWidget(self.stability_title)
-        self.stability_layout.addWidget(
-            self.stability_plot,
-            stretch=1
-        )
-
-        # Get an absolute path that QSS can reliably understand
-        bode_path = Path(BODE_FILE).resolve().as_posix()
+Shared memory created. Press Ctrl+C to exit.
+Traceback (most recent call last):
+  File "C:\Users\javot\Desktop\sofia_code\capt_motor_udp_gui.py", line 46, in <module>
+    class UdpReceiver:
+  File "C:\Users\javot\Desktop\sofia_code\capt_motor_udp_gui.py", line 64, in UdpReceiver
+    def read_latest_packet(self) -> dict | None:
+TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+GUI execution terminated...
