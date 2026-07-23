@@ -24,7 +24,7 @@ sharedMemory = memmapfile( ...
     });
 
 %% Simulation settings
-duration = 30;       % Simulation duration [s]
+duration = 30;
 startTime = tic;
 cnt = 0;
 
@@ -36,7 +36,7 @@ while toc(startTime) < duration
     while ~validSample
         sequenceBefore = sharedMemory.Data.Sequence;
 
-        % An odd sequence means Python is currently writing
+        % Odd sequence means Python is writing
         if mod(sequenceBefore, 2) ~= 0
             pause(0.0001);
             continue;
@@ -50,7 +50,7 @@ while toc(startTime) < duration
             mod(sequenceAfter, 2) == 0;
     end
 
-    %% Convert commands to a numeric row vector
+    %% Convert shared-memory values to numeric row vector
     commands = double(newCommands(:).');
 
     if numel(commands) ~= 2
@@ -59,31 +59,21 @@ while toc(startTime) < duration
             numel(commands));
     end
 
-    %% Extract steering command and heading command
+    %% Extract the two commands
     delta = commands(1);
     thetaCommand = commands(2);
 
-    %% Run one vehicle-model step
+    %% Run the driving environment
+    % Do not add vehicle parameters as function arguments
     [xNew, yNew, thetaNew] = run_driving_venv( ...
         delta, ...
-        thetaCommand, ...
-        u, ...
-        L, ...
-        x_0, ...
-        y_0, ...
-        theta_0, ...
-        time_step);
+        thetaCommand);
 
-    %% Append the new vehicle state
+    %% Store the returned vehicle state
     cnt = cnt + 1;
+    trajectory(cnt, :) = [xNew, yNew, thetaNew];
 
-    trajectory(cnt, :) = [ ...
-        xNew, ...
-        yNew, ...
-        thetaNew ...
-    ];
-
-    %% Update states for the next simulation step
+    %% Update locally stored states
     x_0 = xNew;
     y_0 = yNew;
     theta_0 = thetaNew;
