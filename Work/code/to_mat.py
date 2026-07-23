@@ -1,24 +1,24 @@
+# -*- coding: utf-8 -*-
+
+import math
 import mmap
 import os
 import struct
 import time
-import math
 
-FILE_PATH = "shared_data.bin"
-
-# Layout:
-# uint64 sequence counter = 8 bytes
-# double x                = 8 bytes
-# double y                = 8 bytes
+FILE_PATH = r"C:\Users\javot\Desktop\sofia_code\shared_data.bin"
 FILE_SIZE = 24
 
-# Create the shared file once
-if not os.path.exists(FILE_PATH):
+if not os.path.isfile(FILE_PATH):
     with open(FILE_PATH, "wb") as file:
         file.write(b"\x00" * FILE_SIZE)
 
 with open(FILE_PATH, "r+b") as file:
-    shared_memory = mmap.mmap(file.fileno(), FILE_SIZE)
+    shared_memory = mmap.mmap(
+        file.fileno(),
+        FILE_SIZE,
+        access=mmap.ACCESS_WRITE
+    )
 
     sequence = 0
 
@@ -26,23 +26,32 @@ with open(FILE_PATH, "r+b") as file:
         while True:
             current_time = time.perf_counter()
 
-            x = math.sin(current_time)
-            y = math.cos(current_time)
+            x_value = math.sin(current_time)
+            y_value = math.cos(current_time)
 
-            # Odd number means Python is currently writing
             sequence += 1
-            shared_memory[0:8] = struct.pack("<Q", sequence)
+            shared_memory.seek(0)
+            shared_memory.write(struct.pack("<Q", sequence))
 
-            # Write x and y
-            shared_memory[8:24] = struct.pack("<dd", x, y)
+            shared_memory.seek(8)
+            shared_memory.write(
+                struct.pack("<dd", x_value, y_value)
+            )
 
-            # Even number means writing has finished
             sequence += 1
-            shared_memory[0:8] = struct.pack("<Q", sequence)
+            shared_memory.seek(0)
+            shared_memory.write(struct.pack("<Q", sequence))
 
-            print(f"x={x:.4f}, y={y:.4f}")
+            shared_memory.flush()
 
-            time.sleep(0.01)  # approximately 100 Hz
+            print(
+                "x = {:.4f}, y = {:.4f}".format(
+                    x_value,
+                    y_value
+                )
+            )
+
+            time.sleep(0.01)
 
     except KeyboardInterrupt:
         print("Transmission stopped.")
