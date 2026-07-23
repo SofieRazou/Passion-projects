@@ -2,37 +2,50 @@ clear;
 clc;
 close all;
 
-%% Vehicle settings
-time_step = 0.01;   % Expected Python sampling period [s]
+%% ============================================================
+% Vehicle and simulation settings
+% =============================================================
 
-u = 30.0;           % Vehicle velocity [m/s]
+time_step = 0.01;   % Expected Python update period [s]
+u = 30.0;           % Vehicle speed [m/s]
 L = 1.0;            % Vehicle wheelbase [m]
 
-x = 0.0;            % Initial x-position [m]
-y = 0.0;            % Initial y-position [m]
+x = 0.0;            % Initial vehicle x-position [m]
+y = 0.0;            % Initial vehicle y-position [m]
+yaw = 0.0;          % Initial vehicle heading [rad]
 
-%% Shared-memory file
+%% ============================================================
+% Shared-memory file
+% =============================================================
+
 filePath = ...
     "C:\Users\javot\Desktop\sofia_code\shared_data.bin";
 
-fprintf("Waiting for shared_data.bin...\n");
+fprintf("Waiting for shared-memory file...\n");
 
 while ~isfile(filePath)
     pause(0.1);
 end
 
-%% Wait until the file has the expected size
+%% Wait until Python creates the complete 24-byte file
+
 fileInfo = dir(filePath);
 
-while fileInfo.bytes ~= 24
+while isempty(fileInfo) || fileInfo.bytes ~= 24
     pause(0.1);
     fileInfo = dir(filePath);
 end
 
-%% Shared-memory layout
-% Bytes 1-8:   uint64 sequence counter
-% Bytes 9-16:  double steering command
-% Bytes 17-24: double heading command
+fprintf("Shared-memory file found.\n");
+
+%% ============================================================
+% Map the Python binary file
+%
+% Binary layout:
+%   Bytes 1-8:   uint64 sequence
+%   Bytes 9-16:  double delta
+%   Bytes 17-24: double thetaCommand
+% =============================================================
 
 sharedMemory = memmapfile( ...
     filePath, ...
@@ -42,32 +55,46 @@ sharedMemory = memmapfile( ...
         "double", [1 2], "Values" ...
     });
 
-%% Create the driving scenario immediately
-scenario = drivingScenario( ...
-    "SampleTime", time_step);
+%% ============================================================
+% Load the already existing driving scenario
+% =============================================================
 
-%% Create a road
-roadCenters = [ ...
-      0, 0, 0; ...
-    500, 0, 0 ...
-];
+% Replace createExistingScenario with the name of the function
+% exported from Driving Scenario Designer.
+%
+% The exported function should return:
+%   scenario - the drivingScenario object
+%   egoCar   - the vehicle actor that should be controlled
 
-road( ...
-    scenario, ...
-    roadCenters, ...
-    "Lanes", lanespec(2));
+[scenario, egoCar] = createExistingScenario();
 
-%% Create the vehicle actor
-egoCar = vehicle( ...
-    scenario, ...
-    "ClassID", 1, ...
-    "Position", double([x, y, 0]), ...
-    "Yaw", 0);
+scenario.SampleTime = time_step;
 
-%% Open the driving scenario immediately
+%% Use the actor's initial scenario position
+
+initialPosition = double(egoCar.Position);
+
+x = initialPosition(1);
+y = initialPosition(2);
+
+% Driving Scenario stores yaw in degrees
+yaw = deg2rad(double(egoCar.Yaw));
+
+fprintf("Existing scenario loaded.\n");
+fprintf( ...
+    "Initial position: x = %.3f m, y = %.3f m, yaw = %.3f deg\n", ...
+    x, ...
+    y, ...
+    egoCar.Yaw);
+
+%% ============================================================
+% Open the existing scenario
+% =============================================================
+
 scenarioFigure = figure( ...
-    "Name", "Real-Time Driving Scenario", ...
-    "NumberTitle", "off");
+    "Name", "Real-Time Existing Driving Scenario", ...
+    "NumberTitle", "off", ...
+    "Color", "white");
 
 scenarioAxes = axes( ...
     "Parent", scenarioFigure);
@@ -78,57 +105,87 @@ plot( ...
     "Waypoints", "off", ...
     "RoadCenters", "off");
 
-title(scenarioAxes, "Real-Time Driving Scenario");
+title( ...
+    scenarioAxes, ...
+    "Real-Time Python-Controlled Vehicle");
+
 xlabel(scenarioAxes, "x [m]");
 ylabel(scenarioAxes, "y [m]");
 
 axis(scenarioAxes, "equal");
 grid(scenarioAxes, "on");
 
-%% Create the real-time trajectory plot
-trajectoryFigure = figure( ...
-    "Name", "Real-Time Vehicle Trajectory", ...
-    "NumberTitle", "off");
+%% ============================================================
+% Create a live trajectory trace
+% =============================================================
 
-trajectoryAxes = axes( ...
-    "Parent", trajectoryFigure);
+hold(scenarioAxes, "on");
 
 trajectoryLine = animatedline( ...
-    trajectoryAxes, ...
-    "LineWidth", 1.5);
+    scenarioAxes, ...
+    "LineWidth", 1.5, ...
+    "DisplayName", "Generated trajectory");
 
-xlabel(trajectoryAxes, "x [m]");
-ylabel(trajectoryAxes, "y [m]");
-title(trajectoryAxes, "Real-Time Vehicle Trajectory");
+addpoints(trajectoryLine, x, y);
 
-axis(trajectoryAxes, "equal");
-grid(trajectoryAxes, "on");
+%% ============================================================
+% Allocate trajectory storage
+% =============================================================
 
-%% Preallocate trajectory storage
-waypoints = zeros(1000, 3, "double");
+allocationSize = 10000;
 
-cnt = 0;
+generatedWaypoints = zeros( ...
+    allocationSize, ...
+    3, ...
+    "double");
+
+generatedTime = zeros( ...
+    allocationSize, ...
+    1, ...
+    "double");
+
+generatedDelta = zeros( ...
+    allocationSize, ...
+    1, ...
+    "double");
+
+generatedYaw = zeros( ...
+    allocationSize, ...
+    1, ...
+    "double");
+
+sampleCount = 0;
+
+%% ============================================================
+% Synchronization variables
+% =============================================================
+
 lastSequence = uint64(0);
+simulationStartTime = tic;
 
 fprintf("Driving scenario opened.\n");
-fprintf("Waiting for Python samples...\n");
+fprintf("Waiting for Python commands...\n");
+fprintf("Close the scenario window to stop MATLAB.\n");
 
-%% Real-time reading and visualization loop
-while isvalid(scenarioFigure) && isvalid(trajectoryFigure)
+%% ============================================================
+% Real-time loop
+% =============================================================
+
+while isvalid(scenarioFigure)
 
     validNewSample = false;
 
-    %% Wait for one complete new Python sample
+    %% Wait for one complete, new Python sample
+
     while ~validNewSample
 
-        if ~isvalid(scenarioFigure) || ...
-                ~isvalid(trajectoryFigure)
+        if ~isvalid(scenarioFigure)
             break;
         end
 
         sequenceBefore = sharedMemory.Data.Sequence;
 
-        % Sequence zero means Python has not published anything yet
+        % Sequence zero means Python has not written a sample yet
         if sequenceBefore == 0
             pause(0.0001);
             drawnow limitrate;
@@ -141,17 +198,19 @@ while isvalid(scenarioFigure) && isvalid(trajectoryFigure)
             continue;
         end
 
-        % Ignore a sample that was already processed
+        % Ignore the previous sample
         if sequenceBefore == lastSequence
             pause(0.0001);
             drawnow limitrate;
             continue;
         end
 
-        newCommands = sharedMemory.Data.Values;
+        newValues = sharedMemory.Data.Values;
+
         sequenceAfter = sharedMemory.Data.Sequence;
 
-        % Accept only an unchanged completed sample
+        % The sample is valid only when the sequence remained unchanged
+        % and is even after reading the values
         validNewSample = ...
             sequenceBefore == sequenceAfter && ...
             mod(sequenceAfter, 2) == 0;
@@ -161,32 +220,36 @@ while isvalid(scenarioFigure) && isvalid(trajectoryFigure)
         end
     end
 
-    if ~isvalid(scenarioFigure) || ...
-            ~isvalid(trajectoryFigure)
+    if ~isvalid(scenarioFigure)
         break;
     end
 
-    %% Convert commands to MATLAB doubles
-    commands = double(newCommands(:).');
+    %% ========================================================
+    % Read the commands
+    % =========================================================
+
+    commands = double(newValues(:).');
 
     if numel(commands) ~= 2
         warning( ...
-            "Expected 2 values, but received %d.", ...
+            "Expected two commands but received %d.", ...
             numel(commands));
 
         continue;
     end
 
-    %% Extract Python commands
-    delta = double(commands(1));
-    thetaCommand = double(commands(2));
+    delta = commands(1);
+    thetaCommand = commands(2);
 
     if ~isfinite(delta) || ~isfinite(thetaCommand)
         warning("Invalid command received. Sample ignored.");
         continue;
     end
 
-    %% Calculate the new vehicle position
+    %% ========================================================
+    % Calculate the next vehicle position
+    % =========================================================
+
     [xNew, yNew] = run_driving_venv( ...
         delta, ...
         thetaCommand, ...
@@ -196,67 +259,170 @@ while isvalid(scenarioFigure) && isvalid(trajectoryFigure)
         y, ...
         time_step);
 
-    x = double(xNew);
-    y = double(yNew);
+    xNew = double(xNew);
+    yNew = double(yNew);
 
-    if ~isfinite(x) || ~isfinite(y)
-        warning("Invalid vehicle position. Sample ignored.");
+    if ~isfinite(xNew) || ~isfinite(yNew)
+        warning("Invalid vehicle position calculated.");
         continue;
     end
 
-    %% Store x and y as double trajectory values
-    cnt = cnt + 1;
+    x = xNew;
+    y = yNew;
 
-    if cnt > size(waypoints, 1)
-        waypoints = [ ...
-            waypoints; ...
-            zeros(1000, 3, "double") ...
+    %% Choose which value represents vehicle orientation
+    %
+    % If thetaCommand already represents the global vehicle heading,
+    % use it directly:
+    yaw = thetaCommand;
+    %
+    % If thetaCommand is not the heading, but delta is the steering
+    % wheel angle, replace the line above with:
+    %
+    % yaw = yaw + (u / L) * tan(delta) * time_step;
+
+    %% ========================================================
+    % Store the generated trajectory
+    % =========================================================
+
+    sampleCount = sampleCount + 1;
+
+    if sampleCount > size(generatedWaypoints, 1)
+
+        generatedWaypoints = [ ...
+            generatedWaypoints; ...
+            zeros(allocationSize, 3, "double") ...
+        ];
+
+        generatedTime = [ ...
+            generatedTime; ...
+            zeros(allocationSize, 1, "double") ...
+        ];
+
+        generatedDelta = [ ...
+            generatedDelta; ...
+            zeros(allocationSize, 1, "double") ...
+        ];
+
+        generatedYaw = [ ...
+            generatedYaw; ...
+            zeros(allocationSize, 1, "double") ...
         ];
     end
 
-    waypoints(cnt, :) = double([x, y, 0.0]);
+    generatedWaypoints(sampleCount, :) = [x, y, 0.0];
+    generatedTime(sampleCount) = toc(simulationStartTime);
+    generatedDelta(sampleCount) = delta;
+    generatedYaw(sampleCount) = yaw;
 
-    %% Update the car actor in real time
+    %% ========================================================
+    % Import the current trajectory point into the existing actor
+    % =========================================================
+
     egoCar.Position = double([x, y, 0.0]);
 
-    % MATLAB driving-scenario Yaw is in degrees
-    egoCar.Yaw = double(rad2deg(thetaCommand));
+    % Driving Scenario uses degrees for Yaw
+    egoCar.Yaw = double(rad2deg(yaw));
 
-    %% Update the live trajectory
+    egoCar.Velocity = double([ ...
+        u * cos(yaw), ...
+        u * sin(yaw), ...
+        0.0 ...
+    ]);
+
+    %% ========================================================
+    % Update the live trajectory trace
+    % =========================================================
+
     addpoints(trajectoryLine, x, y);
 
-    %% Keep the trajectory plot centered around the car
-    viewDistance = 30;
+    %% ========================================================
+    % Keep the camera centered around the vehicle
+    % =========================================================
 
-    xlim(trajectoryAxes, ...
-        [x - viewDistance, x + viewDistance]);
+    viewDistanceBehind = 20;
+    viewDistanceAhead = 50;
+    viewDistanceSide = 30;
 
-    ylim(trajectoryAxes, ...
-        [y - viewDistance, y + viewDistance]);
+    xlim( ...
+        scenarioAxes, ...
+        [ ...
+            x - viewDistanceBehind, ...
+            x + viewDistanceAhead ...
+        ]);
 
-    %% Keep the driving-scenario view around the car
-    xlim(scenarioAxes, ...
-        [x - viewDistance, x + viewDistance]);
+    ylim( ...
+        scenarioAxes, ...
+        [ ...
+            y - viewDistanceSide, ...
+            y + viewDistanceSide ...
+        ]);
 
-    ylim(scenarioAxes, ...
-        [y - viewDistance, y + viewDistance]);
+    %% ========================================================
+    % Refresh the scenario
+    % =========================================================
 
-    %% Refresh both figures
     drawnow limitrate;
 
-    %% Display current values
-    fprintf( ...
-        "sequence = %d, delta = %.5f, theta = %.5f, " + ...
-        "x = %.5f, y = %.5f\n", ...
-        lastSequence, ...
-        delta, ...
-        thetaCommand, ...
-        x, ...
-        y);
+    %% Display current state occasionally
+
+    if mod(sampleCount, 10) == 0
+        fprintf( ...
+            "Sample: %6d | delta: %8.4f rad | " + ...
+            "yaw: %8.3f deg | x: %8.3f | y: %8.3f\n", ...
+            sampleCount, ...
+            delta, ...
+            rad2deg(yaw), ...
+            x, ...
+            y);
+    end
 end
 
-%% Keep only the recorded trajectory
-waypoints = double(waypoints(1:cnt, :));
+%% ============================================================
+% Trim unused trajectory storage
+% =============================================================
 
-fprintf("Real-time visualization stopped.\n");
-fprintf("Recorded %d trajectory points.\n", cnt);
+generatedWaypoints = ...
+    generatedWaypoints(1:sampleCount, :);
+
+generatedTime = ...
+    generatedTime(1:sampleCount);
+
+generatedDelta = ...
+    generatedDelta(1:sampleCount);
+
+generatedYaw = ...
+    generatedYaw(1:sampleCount);
+
+%% ============================================================
+% Save the recorded trajectory
+% =============================================================
+
+trajectoryData = table( ...
+    generatedTime, ...
+    generatedWaypoints(:, 1), ...
+    generatedWaypoints(:, 2), ...
+    generatedWaypoints(:, 3), ...
+    generatedDelta, ...
+    generatedYaw, ...
+    "VariableNames", { ...
+        "Time", ...
+        "X", ...
+        "Y", ...
+        "Z", ...
+        "SteeringAngle", ...
+        "Yaw" ...
+    });
+
+save( ...
+    "generated_real_time_trajectory.mat", ...
+    "generatedWaypoints", ...
+    "generatedTime", ...
+    "generatedDelta", ...
+    "generatedYaw", ...
+    "trajectoryData");
+
+fprintf("\nReal-time scenario stopped.\n");
+fprintf("Recorded trajectory points: %d\n", sampleCount);
+fprintf( ...
+    "Trajectory saved to generated_real_time_trajectory.mat\n");
