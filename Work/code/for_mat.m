@@ -3,22 +3,23 @@ clc;
 
 %% Vehicle and simulation settings
 time_step = 0.01;   % Sampling period [s]
-duration = 30;      % Total simulation duration [s]
+duration = 30;      % Data collection duration [s]
 
-u = 30;             % Vehicle velocity [m/s]
+u = 30.0;           % Vehicle velocity [m/s]
 L = 1.0;            % Vehicle wheelbase [m]
 
 x = 0.0;            % Initial x-position [m]
 y = 0.0;            % Initial y-position [m]
 
 %% Shared-memory file
-filePath = "C:\Users\javot\Desktop\sofia_code\shared_data.bin";
+filePath = ...
+    "C:\Users\javot\Desktop\sofia_code\shared_data.bin";
 
 if ~isfile(filePath)
     error("Shared-memory file not found: %s", filePath);
 end
 
-%% Memory layout
+%% Shared-memory layout
 % Bytes 1-8:   uint64 sequence counter
 % Bytes 9-16:  double steering command
 % Bytes 17-24: double heading command
@@ -31,18 +32,21 @@ sharedMemory = memmapfile( ...
         "double", [1 2], "Values" ...
     });
 
-%% Preallocate trajectory
+%% Preallocate waypoint matrix
 maxSamples = ceil(duration / time_step);
-trajectory = zeros(maxSamples, 2);
+
+% Store x, y and z coordinates
+waypoints = zeros(maxSamples, 3, "double");
 
 cnt = 0;
 startTime = tic;
 
+%% Collect the vehicle trajectory
 while toc(startTime) < duration
 
-    %% Read one complete sample
     validSample = false;
 
+    %% Read one complete shared-memory sample
     while ~validSample
         sequenceBefore = sharedMemory.Data.Sequence;
 
@@ -55,13 +59,13 @@ while toc(startTime) < duration
         newCommands = sharedMemory.Data.Values;
         sequenceAfter = sharedMemory.Data.Sequence;
 
-        % Accept only a complete, unchanged sample
+        % Ensure the sample was not changed during the read
         validSample = ...
             sequenceBefore == sequenceAfter && ...
             mod(sequenceAfter, 2) == 0;
     end
 
-    %% Convert values to a 1-by-2 numeric vector
+    %% Convert commands to double
     commands = double(newCommands(:).');
 
     if numel(commands) ~= 2
@@ -71,10 +75,10 @@ while toc(startTime) < duration
     end
 
     %% Extract commands
-    delta = commands(1);
-    thetaCommand = commands(2);
+    delta = double(commands(1));
+    thetaCommand = double(commands(2));
 
-    %% Run one vehicle simulation step
+    %% Run one vehicle-model step
     [xNew, yNew] = run_driving_venv( ...
         delta, ...
         thetaCommand, ...
@@ -84,18 +88,22 @@ while toc(startTime) < duration
         y, ...
         time_step);
 
-    %% Update vehicle position
-    x = xNew;
-    y = yNew;
+    %% Convert returned coordinates to double
+    x = double(xNew);
+    y = double(yNew);
 
-    %% Store trajectory
+    %% Store the waypoint
     cnt = cnt + 1;
 
-    if cnt > size(trajectory, 1)
-        trajectory = [trajectory; zeros(1000, 2)];
+    if cnt > size(waypoints, 1)
+        waypoints = [ ...
+            waypoints; ...
+            zeros(1000, 3, "double") ...
+        ];
     end
 
-    trajectory(cnt, :) = [x, y];
+    % Driving-scenario waypoints use [x, y, z]
+    waypoints(cnt, :) = double([x, y, 0.0]);
 
     %% Display current values
     fprintf( ...
@@ -105,16 +113,63 @@ while toc(startTime) < duration
     pause(time_step);
 end
 
-%% Remove unused trajectory rows
-trajectory = trajectory(1:cnt, :);
+%% Remove unused waypoint rows
+waypoints = double(waypoints(1:cnt, :));
 
-%% Plot vehicle trajectory
+%% Remove invalid rows
+validRows = all(isfinite(waypoints), 2);
+waypoints = waypoints(validRows, :);
+
+if size(waypoints, 1) < 2
+    error("At least two valid waypoints are required.");
+end
+
+%% Remove consecutive duplicate waypoints
+positionChange = [ ...
+    true; ...
+    any(diff(waypoints(:, 1:2), 1, 1) ~= 0, 2) ...
+];
+
+waypoints = waypoints(positionChange, :);
+
+if size(waypoints, 1) < 2
+    error("The generated trajectory contains fewer than two unique points.");
+end
+
+%% Create the driving scenario
+scenario = drivingScenario( ...
+    "SampleTime", time_step);
+
+%% Create the car actor
+egoCar = vehicle( ...
+    scenario, ...
+    "ClassID", 1, ...
+    "Position", waypoints(1, :));
+
+%% Assign the collected waypoints to the car
+trajectory(egoCar, waypoints, u);
+
+%% Display the collected trajectory
 figure;
-plot(trajectory(:, 1), trajectory(:, 2), "LineWidth", 1.5);
+
+plot(waypoints(:, 1), waypoints(:, 2), "LineWidth", 1.5);
 
 xlabel("x [m]");
 ylabel("y [m]");
-title("Vehicle trajectory");
+title("Collected vehicle trajectory");
 
 grid on;
 axis equal;
+
+%% Display the driving scenario
+figure;
+scenarioPlot = plot(scenario);
+
+title("Driving scenario");
+
+%% Run the scenario
+restart(scenario);
+
+while advance(scenario)
+    pause(time_step);
+end
