@@ -1,4 +1,21 @@
-filePath = "C:\Temp\shared_data.bin";
+clear;
+clc;
+
+%% Settings
+time_step = 0.01;   % Python writes approximately every 0.01 s
+duration = 30;      % Run time [s]
+
+%% Shared-memory file
+filePath = "C:\Users\javot\Desktop\sofia_code\shared_data.bin";
+
+if ~isfile(filePath)
+    error("Shared-memory file not found: %s", filePath);
+end
+
+%% Memory layout:
+% Bytes 1-8:   uint64 sequence
+% Bytes 9-16:  double command 1
+% Bytes 17-24: double command 2
 
 sharedMemory = memmapfile( ...
     filePath, ...
@@ -8,41 +25,76 @@ sharedMemory = memmapfile( ...
         "double", [1 2], "Values" ...
     });
 
-while true
-    % Read until a complete, consistent sample is available
-    while true
+%% Preallocate trajectory
+maxSamples = ceil(duration / time_step);
+trajectory = zeros(maxSamples, 2);
+
+cnt = 0;
+startTime = tic;
+
+while toc(startTime) < duration
+
+    %% Read one complete sample
+    validSample = false;
+
+    while ~validSample
         sequenceBefore = sharedMemory.Data.Sequence;
 
-        % An odd sequence means Python is writing
+        % Odd sequence means Python is currently writing
         if mod(sequenceBefore, 2) ~= 0
+            pause(0.0001);
             continue;
         end
 
-        values = sharedMemory.Data.Values;
+        newCommands = sharedMemory.Data.Values;
+
         sequenceAfter = sharedMemory.Data.Sequence;
 
-        % Ensure Python did not update the values during reading
-        if sequenceBefore == sequenceAfter && ...
-                mod(sequenceAfter, 2) == 0
-            break;
-        end
+        % Accept only if Python did not write during the read
+        validSample = ...
+            sequenceBefore == sequenceAfter && ...
+            mod(sequenceAfter, 2) == 0;
     end
 
-    x = values(1);
-    y = values(2);
+    %% Convert to a normal 1-by-2 MATLAB vector
+    commands = double(newCommands(:).');
 
-    fprintf("x = %.4f, y = %.4f\n", x, y);
+    if numel(commands) ~= 2
+        error( ...
+            "Expected 2 values from shared_data.bin, received %d.", ...
+            numel(commands));
+    end
 
-    pause(0.01);
+    %% Read commands
+    delta = commands(1);
+    thetaCommand = commands(2);
+
+    %% Send commands to the driving environment
+    [xNew, yNew] = run_driving_venv(delta, thetaCommand);
+
+    %% Store returned position
+    cnt = cnt + 1;
+
+    if cnt > size(trajectory, 1)
+        trajectory = [trajectory; zeros(1000, 2)];
+    end
+
+    trajectory(cnt, :) = [xNew, yNew];
+
+    %% Optional monitoring
+    fprintf( ...
+        "delta = %.4f, theta = %.4f, x = %.4f, y = %.4f\n", ...
+        delta, thetaCommand, xNew, yNew);
+
+    pause(time_step);
 end
-
 
 %% Remove unused rows
 trajectory = trajectory(1:cnt, :);
 
-%% Display the collected trajectory
+%% Plot trajectory
 figure;
-plot(trajectory(:, 1), trajectory(:, 2));
+plot(trajectory(:, 1), trajectory(:, 2), "LineWidth", 1.5);
 xlabel("x [m]");
 ylabel("y [m]");
 title("Vehicle trajectory");
