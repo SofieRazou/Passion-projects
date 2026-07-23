@@ -1,5 +1,4 @@
 import math
-import mmap
 import os
 import struct
 import time
@@ -7,10 +6,9 @@ import time
 FILE_PATH = r"C:\Users\javot\Desktop\sofia_code\shared_data.bin"
 
 FILE_SIZE = 24
-SAMPLE_PERIOD = 0.01
-DURATION = 30.0
+SAMPLE_PERIOD = 0.01   # 100 Hz
+DURATION = 30.0        # seconds
 
-# Ensure the destination folder exists
 folder = os.path.dirname(FILE_PATH)
 
 if not os.path.isdir(folder):
@@ -18,42 +16,42 @@ if not os.path.isdir(folder):
         "Folder does not exist: {}".format(folder)
     )
 
-# Create the binary file with exactly 24 bytes
-with open(FILE_PATH, "w+b") as file:
-    file.truncate(FILE_SIZE)
-    file.flush()
+# Create the file only when it does not exist or has the wrong size
+if not os.path.exists(FILE_PATH) or os.path.getsize(FILE_PATH) != FILE_SIZE:
+    with open(FILE_PATH, "wb") as file:
+        file.write(b"\x00" * FILE_SIZE)
+        file.flush()
+        os.fsync(file.fileno())
 
-    # Map the entire file
-    shared_memory = mmap.mmap(
-        file.fileno(),
-        length=0,
-        access=mmap.ACCESS_WRITE
-    )
+sequence = 0
+start_time = time.perf_counter()
+next_sample_time = start_time
 
-    sequence = 0
-    start_time = time.perf_counter()
-    next_sample_time = start_time
+print("Starting Python writer...")
+print("Writing to:", FILE_PATH)
 
-    try:
+try:
+    with open(FILE_PATH, "r+b", buffering=0) as file:
+
         while time.perf_counter() - start_time < DURATION:
             elapsed_time = time.perf_counter() - start_time
 
             # Example commands
-            # Replace these with your actual values
+            # Replace these with the real values from your GUI or motor
             delta = 0.05 * math.sin(0.5 * elapsed_time)
             theta_command = 0.0
 
-            # Odd sequence means writing is in progress
+            # Odd sequence: writing has started
             sequence += 1
 
-            shared_memory.seek(0)
-            shared_memory.write(
+            file.seek(0)
+            file.write(
                 struct.pack("<Q", sequence)
             )
 
-            # Write two doubles
-            shared_memory.seek(8)
-            shared_memory.write(
+            # Write the two double values
+            file.seek(8)
+            file.write(
                 struct.pack(
                     "<dd",
                     float(delta),
@@ -61,15 +59,15 @@ with open(FILE_PATH, "w+b") as file:
                 )
             )
 
-            # Even sequence means writing is complete
+            # Even sequence: writing has finished
             sequence += 1
 
-            shared_memory.seek(0)
-            shared_memory.write(
+            file.seek(0)
+            file.write(
                 struct.pack("<Q", sequence)
             )
 
-            shared_memory.flush()
+            file.flush()
 
             print(
                 "sequence={}, delta={:.6f}, theta={:.6f}".format(
@@ -80,19 +78,14 @@ with open(FILE_PATH, "w+b") as file:
             )
 
             next_sample_time += SAMPLE_PERIOD
-            remaining_time = (
-                next_sample_time - time.perf_counter()
-            )
+            remaining_time = next_sample_time - time.perf_counter()
 
             if remaining_time > 0:
                 time.sleep(remaining_time)
             else:
                 next_sample_time = time.perf_counter()
 
-    except KeyboardInterrupt:
-        print("Transmission stopped.")
-
-    finally:
-        shared_memory.close()
+except KeyboardInterrupt:
+    print("Transmission stopped by user.")
 
 print("Python transmission finished.")
