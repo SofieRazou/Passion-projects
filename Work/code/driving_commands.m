@@ -1,15 +1,11 @@
 clear;
 clc;
 
-%% Vehicle parameters
-u = 30;             % Vehicle speed [m/s]
-x_0 = 0.0;          % Initial x-position [m]
-y_0 = 0.0;          % Initial y-position [m]
-theta_0 = 0.0;      % Initial vehicle heading [rad]
-L = 1.0;            % Wheelbase [m]
-time_step = 0.001;  % Simulation timestep [s]
+%% Simulation settings
+time_step = 0.001;   % Sampling period [s]
+duration = 30;       % Duration [s]
 
-trajectory = [];
+trajectory = zeros(ceil(duration / time_step), 2);
 commands = [0.0, 0.0];
 
 %% Shared-memory file
@@ -23,20 +19,19 @@ sharedMemory = memmapfile( ...
         "double", [1 2], "Values" ...
     });
 
-%% Simulation settings
-duration = 30;
+%% Run simulation
 startTime = tic;
 cnt = 0;
 
 while toc(startTime) < duration
 
-    %% Read a complete sample from shared memory
+    %% Read a complete shared-memory sample
     validSample = false;
 
     while ~validSample
         sequenceBefore = sharedMemory.Data.Sequence;
 
-        % Odd sequence means Python is writing
+        % Odd sequence means Python is currently writing
         if mod(sequenceBefore, 2) ~= 0
             pause(0.0001);
             continue;
@@ -50,36 +45,35 @@ while toc(startTime) < duration
             mod(sequenceAfter, 2) == 0;
     end
 
-    %% Convert shared-memory values to numeric row vector
+    %% Ensure commands is a 1-by-2 numeric vector
     commands = double(newCommands(:).');
 
     if numel(commands) ~= 2
         error( ...
-            "Expected two commands, but received %d.", ...
+            "Expected two command values, but received %d.", ...
             numel(commands));
     end
 
-    %% Extract the two commands
     delta = commands(1);
     thetaCommand = commands(2);
 
-    %% Run the driving environment
-    % Do not add vehicle parameters as function arguments
-    [xNew, yNew, thetaNew] = run_driving_venv( ...
-        delta, ...
-        thetaCommand);
+    %% Run one driving-environment update
+    [xNew, yNew] = run_driving_venv(delta, thetaCommand);
 
-    %% Store the returned vehicle state
+    %% Store the returned position
     cnt = cnt + 1;
-    trajectory(cnt, :) = [xNew, yNew, thetaNew];
 
-    %% Update locally stored states
-    x_0 = xNew;
-    y_0 = yNew;
-    theta_0 = thetaNew;
+    if cnt > size(trajectory, 1)
+        trajectory(end + 1000, 2) = 0;
+    end
+
+    trajectory(cnt, :) = [xNew, yNew];
 
     pause(time_step);
 end
 
-%% Export the generated trajectory
+%% Remove unused preallocated rows
+trajectory = trajectory(1:cnt, :);
+
+%% Export trajectory
 outputScenario = exportToDrivingScenario(trajectory);
