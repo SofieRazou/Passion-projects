@@ -35,3 +35,16 @@ while true
 
     pause(0.01);
 end
+
+
+%% Remove unused rows
+trajectory = trajectory(1:cnt, :);
+
+%% Display the collected trajectory
+figure;
+plot(trajectory(:, 1), trajectory(:, 2));
+xlabel("x [m]");
+ylabel("y [m]");
+title("Vehicle trajectory");
+grid on;
+axis equal;
