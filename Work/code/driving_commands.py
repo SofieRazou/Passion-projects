@@ -1,10 +1,10 @@
-import struct
+Not enough input arguments.
 
-packet = struct.pack(
-    "<ddd",
-    angle,
-    torque,
-    timestamp
-)
+Error in run_driving_venv (line 6)
+    R = L/tan(delta);
 
-sock.sendto(packet, ("127.0.0.1", 50000))
+Error in driving_commands (line 61)
+    [xNew, yNew] = run_driving_venv(delta,
+    thetaCommand);
+ 
+>> 
