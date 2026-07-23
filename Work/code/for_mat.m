@@ -1,9 +1,9 @@
 clear;
 clc;
 
-%% Vehicle and simulation settings
-time_step = 0.01;   % Sampling period [s]
-duration = 30;      % Data collection duration [s]
+%% Vehicle settings
+time_step = 0.01;   % Expected Python sampling period [s]
+duration = 30;      % Number of seconds of new data to collect
 
 u = 30.0;           % Vehicle velocity [m/s]
 L = 1.0;            % Vehicle wheelbase [m]
@@ -15,8 +15,10 @@ y = 0.0;            % Initial y-position [m]
 filePath = ...
     "C:\Users\javot\Desktop\sofia_code\shared_data.bin";
 
-if ~isfile(filePath)
-    error("Shared-memory file not found: %s", filePath);
+fprintf("Waiting for the Python shared-memory file...\n");
+
+while ~isfile(filePath)
+    pause(0.1);
 end
 
 %% Shared-memory layout
@@ -35,20 +37,35 @@ sharedMemory = memmapfile( ...
 %% Preallocate waypoint matrix
 maxSamples = ceil(duration / time_step);
 
-% Store x, y and z coordinates
+% Driving-scenario waypoints use [x, y, z]
 waypoints = zeros(maxSamples, 3, "double");
 
 cnt = 0;
-startTime = tic;
+lastSequence = uint64(0);
+collectionStarted = false;
 
-%% Collect the vehicle trajectory
-while toc(startTime) < duration
+fprintf("Waiting for Python to publish the first sample...\n");
 
-    validSample = false;
+%% Read live samples from Python
+while true
 
-    %% Read one complete shared-memory sample
-    while ~validSample
+    %% Stop after the requested duration of live data
+    if collectionStarted && toc(collectionStartTime) >= duration
+        break;
+    end
+
+    validNewSample = false;
+
+    %% Wait for a complete and new sample
+    while ~validNewSample
+
         sequenceBefore = sharedMemory.Data.Sequence;
+
+        % Sequence zero means Python has not published data yet
+        if sequenceBefore == 0
+            pause(0.0001);
+            continue;
+        end
 
         % Odd sequence means Python is currently writing
         if mod(sequenceBefore, 2) ~= 0
@@ -56,13 +73,31 @@ while toc(startTime) < duration
             continue;
         end
 
+        % Wait until Python publishes a new sample
+        if sequenceBefore == lastSequence
+            pause(0.0001);
+            continue;
+        end
+
         newCommands = sharedMemory.Data.Values;
         sequenceAfter = sharedMemory.Data.Sequence;
 
-        % Ensure the sample was not changed during the read
-        validSample = ...
+        % Accept only a complete and unchanged sample
+        validNewSample = ...
             sequenceBefore == sequenceAfter && ...
             mod(sequenceAfter, 2) == 0;
+
+        if validNewSample
+            lastSequence = sequenceAfter;
+        end
+    end
+
+    %% Start timing when the first valid sample arrives
+    if ~collectionStarted
+        collectionStartTime = tic;
+        collectionStarted = true;
+
+        fprintf("First Python sample received.\n");
     end
 
     %% Convert commands to double
@@ -70,7 +105,7 @@ while toc(startTime) < duration
 
     if numel(commands) ~= 2
         error( ...
-            "Expected 2 values from shared_data.bin, received %d.", ...
+            "Expected 2 commands, but received %d.", ...
             numel(commands));
     end
 
@@ -88,11 +123,16 @@ while toc(startTime) < duration
         y, ...
         time_step);
 
-    %% Convert returned coordinates to double
+    %% Update vehicle position
     x = double(xNew);
     y = double(yNew);
 
-    %% Store the waypoint
+    if ~isfinite(x) || ~isfinite(y)
+        warning("Invalid position received. Sample ignored.");
+        continue;
+    end
+
+    %% Store the position as a double waypoint
     cnt = cnt + 1;
 
     if cnt > size(waypoints, 1)
@@ -102,39 +142,58 @@ while toc(startTime) < duration
         ];
     end
 
-    % Driving-scenario waypoints use [x, y, z]
     waypoints(cnt, :) = double([x, y, 0.0]);
 
-    %% Display current values
     fprintf( ...
-        "delta = %.4f, theta = %.4f, x = %.4f, y = %.4f\n", ...
-        delta, thetaCommand, x, y);
-
-    pause(time_step);
+        "sequence = %d, delta = %.5f, theta = %.5f, " + ...
+        "x = %.5f, y = %.5f\n", ...
+        lastSequence, ...
+        delta, ...
+        thetaCommand, ...
+        x, ...
+        y);
 end
 
 %% Remove unused waypoint rows
 waypoints = double(waypoints(1:cnt, :));
 
-%% Remove invalid rows
-validRows = all(isfinite(waypoints), 2);
-waypoints = waypoints(validRows, :);
-
 if size(waypoints, 1) < 2
     error("At least two valid waypoints are required.");
 end
 
-%% Remove consecutive duplicate waypoints
-positionChange = [ ...
+%% Remove invalid waypoints
+validRows = all(isfinite(waypoints), 2);
+waypoints = waypoints(validRows, :);
+
+%% Remove consecutive duplicate positions
+positionDifference = diff(waypoints(:, 1:2), 1, 1);
+
+uniqueRows = [ ...
     true; ...
-    any(diff(waypoints(:, 1:2), 1, 1) ~= 0, 2) ...
+    any(abs(positionDifference) > 1e-9, 2) ...
 ];
 
-waypoints = waypoints(positionChange, :);
+waypoints = waypoints(uniqueRows, :);
 
 if size(waypoints, 1) < 2
-    error("The generated trajectory contains fewer than two unique points.");
+    error("The trajectory contains fewer than two unique positions.");
 end
+
+%% Plot the collected trajectory
+figure;
+
+plot( ...
+    waypoints(:, 1), ...
+    waypoints(:, 2), ...
+    "LineWidth", ...
+    1.5);
+
+xlabel("x [m]");
+ylabel("y [m]");
+title("Collected vehicle trajectory");
+
+grid on;
+axis equal;
 
 %% Create the driving scenario
 scenario = drivingScenario( ...
@@ -149,27 +208,17 @@ egoCar = vehicle( ...
 %% Assign the collected waypoints to the car
 trajectory(egoCar, waypoints, u);
 
-%% Display the collected trajectory
+%% Open a scenario figure
 figure;
-
-plot(waypoints(:, 1), waypoints(:, 2), "LineWidth", 1.5);
-
-xlabel("x [m]");
-ylabel("y [m]");
-title("Collected vehicle trajectory");
-
-grid on;
-axis equal;
-
-%% Display the driving scenario
-figure;
-scenarioPlot = plot(scenario);
-
+plot(scenario);
 title("Driving scenario");
 
-%% Run the scenario
+%% Play the scenario
 restart(scenario);
 
 while advance(scenario)
+    drawnow limitrate;
     pause(time_step);
 end
+
+fprintf("Driving scenario finished.\n");
