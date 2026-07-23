@@ -1,9 +1,9 @@
 clear;
 clc;
+close all;
 
 %% Vehicle settings
 time_step = 0.01;   % Expected Python sampling period [s]
-duration = 30;      % Number of seconds of new data to collect
 
 u = 30.0;           % Vehicle velocity [m/s]
 L = 1.0;            % Vehicle wheelbase [m]
@@ -15,10 +15,18 @@ y = 0.0;            % Initial y-position [m]
 filePath = ...
     "C:\Users\javot\Desktop\sofia_code\shared_data.bin";
 
-fprintf("Waiting for the Python shared-memory file...\n");
+fprintf("Waiting for shared_data.bin...\n");
 
 while ~isfile(filePath)
     pause(0.1);
+end
+
+%% Wait until the file has the expected size
+fileInfo = dir(filePath);
+
+while fileInfo.bytes ~= 24
+    pause(0.1);
+    fileInfo = dir(filePath);
 end
 
 %% Shared-memory layout
@@ -34,36 +42,96 @@ sharedMemory = memmapfile( ...
         "double", [1 2], "Values" ...
     });
 
-%% Preallocate waypoint matrix
-maxSamples = ceil(duration / time_step);
+%% Create the driving scenario immediately
+scenario = drivingScenario( ...
+    "SampleTime", time_step);
 
-% Driving-scenario waypoints use [x, y, z]
-waypoints = zeros(maxSamples, 3, "double");
+%% Create a road
+roadCenters = [ ...
+      0, 0, 0; ...
+    500, 0, 0 ...
+];
+
+road( ...
+    scenario, ...
+    roadCenters, ...
+    "Lanes", lanespec(2));
+
+%% Create the vehicle actor
+egoCar = vehicle( ...
+    scenario, ...
+    "ClassID", 1, ...
+    "Position", double([x, y, 0]), ...
+    "Yaw", 0);
+
+%% Open the driving scenario immediately
+scenarioFigure = figure( ...
+    "Name", "Real-Time Driving Scenario", ...
+    "NumberTitle", "off");
+
+scenarioAxes = axes( ...
+    "Parent", scenarioFigure);
+
+plot( ...
+    scenario, ...
+    "Parent", scenarioAxes, ...
+    "Waypoints", "off", ...
+    "RoadCenters", "off");
+
+title(scenarioAxes, "Real-Time Driving Scenario");
+xlabel(scenarioAxes, "x [m]");
+ylabel(scenarioAxes, "y [m]");
+
+axis(scenarioAxes, "equal");
+grid(scenarioAxes, "on");
+
+%% Create the real-time trajectory plot
+trajectoryFigure = figure( ...
+    "Name", "Real-Time Vehicle Trajectory", ...
+    "NumberTitle", "off");
+
+trajectoryAxes = axes( ...
+    "Parent", trajectoryFigure);
+
+trajectoryLine = animatedline( ...
+    trajectoryAxes, ...
+    "LineWidth", 1.5);
+
+xlabel(trajectoryAxes, "x [m]");
+ylabel(trajectoryAxes, "y [m]");
+title(trajectoryAxes, "Real-Time Vehicle Trajectory");
+
+axis(trajectoryAxes, "equal");
+grid(trajectoryAxes, "on");
+
+%% Preallocate trajectory storage
+waypoints = zeros(1000, 3, "double");
 
 cnt = 0;
 lastSequence = uint64(0);
-collectionStarted = false;
 
-fprintf("Waiting for Python to publish the first sample...\n");
+fprintf("Driving scenario opened.\n");
+fprintf("Waiting for Python samples...\n");
 
-%% Read live samples from Python
-while true
-
-    %% Stop after the requested duration of live data
-    if collectionStarted && toc(collectionStartTime) >= duration
-        break;
-    end
+%% Real-time reading and visualization loop
+while isvalid(scenarioFigure) && isvalid(trajectoryFigure)
 
     validNewSample = false;
 
-    %% Wait for a complete and new sample
+    %% Wait for one complete new Python sample
     while ~validNewSample
+
+        if ~isvalid(scenarioFigure) || ...
+                ~isvalid(trajectoryFigure)
+            break;
+        end
 
         sequenceBefore = sharedMemory.Data.Sequence;
 
-        % Sequence zero means Python has not published data yet
+        % Sequence zero means Python has not published anything yet
         if sequenceBefore == 0
             pause(0.0001);
+            drawnow limitrate;
             continue;
         end
 
@@ -73,16 +141,17 @@ while true
             continue;
         end
 
-        % Wait until Python publishes a new sample
+        % Ignore a sample that was already processed
         if sequenceBefore == lastSequence
             pause(0.0001);
+            drawnow limitrate;
             continue;
         end
 
         newCommands = sharedMemory.Data.Values;
         sequenceAfter = sharedMemory.Data.Sequence;
 
-        % Accept only a complete and unchanged sample
+        % Accept only an unchanged completed sample
         validNewSample = ...
             sequenceBefore == sequenceAfter && ...
             mod(sequenceAfter, 2) == 0;
@@ -92,28 +161,32 @@ while true
         end
     end
 
-    %% Start timing when the first valid sample arrives
-    if ~collectionStarted
-        collectionStartTime = tic;
-        collectionStarted = true;
-
-        fprintf("First Python sample received.\n");
+    if ~isvalid(scenarioFigure) || ...
+            ~isvalid(trajectoryFigure)
+        break;
     end
 
-    %% Convert commands to double
+    %% Convert commands to MATLAB doubles
     commands = double(newCommands(:).');
 
     if numel(commands) ~= 2
-        error( ...
-            "Expected 2 commands, but received %d.", ...
+        warning( ...
+            "Expected 2 values, but received %d.", ...
             numel(commands));
+
+        continue;
     end
 
-    %% Extract commands
+    %% Extract Python commands
     delta = double(commands(1));
     thetaCommand = double(commands(2));
 
-    %% Run one vehicle-model step
+    if ~isfinite(delta) || ~isfinite(thetaCommand)
+        warning("Invalid command received. Sample ignored.");
+        continue;
+    end
+
+    %% Calculate the new vehicle position
     [xNew, yNew] = run_driving_venv( ...
         delta, ...
         thetaCommand, ...
@@ -123,16 +196,15 @@ while true
         y, ...
         time_step);
 
-    %% Update vehicle position
     x = double(xNew);
     y = double(yNew);
 
     if ~isfinite(x) || ~isfinite(y)
-        warning("Invalid position received. Sample ignored.");
+        warning("Invalid vehicle position. Sample ignored.");
         continue;
     end
 
-    %% Store the position as a double waypoint
+    %% Store x and y as double trajectory values
     cnt = cnt + 1;
 
     if cnt > size(waypoints, 1)
@@ -144,6 +216,35 @@ while true
 
     waypoints(cnt, :) = double([x, y, 0.0]);
 
+    %% Update the car actor in real time
+    egoCar.Position = double([x, y, 0.0]);
+
+    % MATLAB driving-scenario Yaw is in degrees
+    egoCar.Yaw = double(rad2deg(thetaCommand));
+
+    %% Update the live trajectory
+    addpoints(trajectoryLine, x, y);
+
+    %% Keep the trajectory plot centered around the car
+    viewDistance = 30;
+
+    xlim(trajectoryAxes, ...
+        [x - viewDistance, x + viewDistance]);
+
+    ylim(trajectoryAxes, ...
+        [y - viewDistance, y + viewDistance]);
+
+    %% Keep the driving-scenario view around the car
+    xlim(scenarioAxes, ...
+        [x - viewDistance, x + viewDistance]);
+
+    ylim(scenarioAxes, ...
+        [y - viewDistance, y + viewDistance]);
+
+    %% Refresh both figures
+    drawnow limitrate;
+
+    %% Display current values
     fprintf( ...
         "sequence = %d, delta = %.5f, theta = %.5f, " + ...
         "x = %.5f, y = %.5f\n", ...
@@ -154,71 +255,8 @@ while true
         y);
 end
 
-%% Remove unused waypoint rows
+%% Keep only the recorded trajectory
 waypoints = double(waypoints(1:cnt, :));
 
-if size(waypoints, 1) < 2
-    error("At least two valid waypoints are required.");
-end
-
-%% Remove invalid waypoints
-validRows = all(isfinite(waypoints), 2);
-waypoints = waypoints(validRows, :);
-
-%% Remove consecutive duplicate positions
-positionDifference = diff(waypoints(:, 1:2), 1, 1);
-
-uniqueRows = [ ...
-    true; ...
-    any(abs(positionDifference) > 1e-9, 2) ...
-];
-
-waypoints = waypoints(uniqueRows, :);
-
-if size(waypoints, 1) < 2
-    error("The trajectory contains fewer than two unique positions.");
-end
-
-%% Plot the collected trajectory
-figure;
-
-plot( ...
-    waypoints(:, 1), ...
-    waypoints(:, 2), ...
-    "LineWidth", ...
-    1.5);
-
-xlabel("x [m]");
-ylabel("y [m]");
-title("Collected vehicle trajectory");
-
-grid on;
-axis equal;
-
-%% Create the driving scenario
-scenario = drivingScenario( ...
-    "SampleTime", time_step);
-
-%% Create the car actor
-egoCar = vehicle( ...
-    scenario, ...
-    "ClassID", 1, ...
-    "Position", waypoints(1, :));
-
-%% Assign the collected waypoints to the car
-trajectory(egoCar, waypoints, u);
-
-%% Open a scenario figure
-figure;
-plot(scenario);
-title("Driving scenario");
-
-%% Play the scenario
-restart(scenario);
-
-while advance(scenario)
-    drawnow limitrate;
-    pause(time_step);
-end
-
-fprintf("Driving scenario finished.\n");
+fprintf("Real-time visualization stopped.\n");
+fprintf("Recorded %d trajectory points.\n", cnt);
