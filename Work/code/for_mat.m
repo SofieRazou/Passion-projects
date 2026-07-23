@@ -3,7 +3,7 @@ clc;
 
 %% Settings
 time_step = 0.01;   % Python writes approximately every 0.01 s
-duration = 30;      % Run time [s]
+u = 30;      % Run time [s]
 
 %% Shared-memory file
 filePath = "C:\Users\javot\Desktop\sofia_code\shared_data.bin";
@@ -70,7 +70,7 @@ while toc(startTime) < duration
     thetaCommand = commands(2);
 
     %% Send commands to the driving environment
-    [xNew, yNew] = run_driving_venv(delta, thetaCommand);
+    [xNew, yNew] = run_driving_venv(delta, thetaCommand, u, L, x, y, time_step);
 
     %% Store returned position
     cnt = cnt + 1;
