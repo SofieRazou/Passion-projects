@@ -1,19 +1,26 @@
 function [scenario, egoVehicle] = drive1()
 
-%% Load trajectory data from workspace
+clc;
+close all;
+
+
+%% Load trajectory data from MATLAB workspace
+
 waypoints = evalin('base','waypoints');
 u = evalin('base','u');
 
 
-%% Keep only X and Y coordinates
+% Keep only X-Y coordinates
 waypoints = waypoints(:,1:2);
 
 
 %% Create driving scenario
+
 scenario = drivingScenario;
 
 
-%% Define road
+%% Create road
+
 roadCenters = [ ...
     55.8 5.9 0;
     42.4 16.4 0;
@@ -40,42 +47,66 @@ roadCenters = [ ...
 road(scenario,roadCenters);
 
 
+
 %% Create ego vehicle
+
 egoVehicle = vehicle(scenario);
 
 
-%% Make sure velocity input matches waypoints
+
+%% Prepare velocity vector
 
 if length(u)==1
+
     u = u*ones(size(waypoints,1),1);
+
 end
 
 
 if length(u) ~= size(waypoints,1)
-    error('Velocity vector u must have the same number of elements as waypoints')
+
+    error('Velocity vector u must have the same length as waypoints');
+
 end
 
 
+
 %% Assign trajectory
-trajectory(egoVehicle, waypoints, u);
+
+trajectory(egoVehicle,...
+           waypoints,...
+           u);
 
 
-%% Plot scenario
-figure('Name','Driving Scenario')
 
-plot(scenario,...
-    'Waypoints','on',...
-    'RoadCenters','on')
+%% Open live 3D visualization
 
-title('Ego Vehicle Trajectory')
+try
+
+    viewer = show3D(scenario);
+
+catch
+
+    warning('show3D unavailable. Using 2D plot instead.')
+
+    figure
+    plot(scenario,...
+        'Waypoints','on',...
+        'RoadCenters','on')
+
+end
+
 
 
 %% Run simulation
-restart(scenario)
+
+restart(scenario);
+
 
 while advance(scenario)
 
     pause(0.01)
+
     drawnow
 
 end
