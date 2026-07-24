@@ -96,13 +96,15 @@ class UdpReceiver:
 
 class SpringWidget(QWidget):
     """
-    Visualisation of an asymmetric rotational spring around the motor.
+    Rotational asymmetric spring visualization around the motor.
 
-    Positive rotation:
-        +K spring after positive deadzone
+    Positive side:
+        +K spring
 
-    Negative rotation:
-        -K spring after negative deadzone
+    Negative side:
+        -K spring
+
+    Deadzone around equilibrium.
     """
 
     def __init__(self, parent=None):
@@ -113,14 +115,12 @@ class SpringWidget(QWidget):
 
         self.reference_angle_rad = 0.0
 
-        # asymmetric spring parameters
-        self.kappa_positive = 2.0   # Nm/rad
-        self.kappa_negative = 0.8   # Nm/rad
+        self.kappa_positive = 2.0
+        self.kappa_negative = 1.0
 
-        # rotational deadzone
         self.deadzone_rad = math.radians(5)
 
-        self.setMinimumHeight(400)
+        self.setMinimumHeight(450)
 
 
     def set_angle(self, angle_rad):
@@ -135,10 +135,29 @@ class SpringWidget(QWidget):
         self.update()
 
 
-    def set_reference_angle(self, reference_rad):
+    def set_reference_angle(self, reference):
 
-        self.reference_angle_rad = reference_rad
+        self.reference_angle_rad = reference
         self.update()
+
+
+    def set_positive_kappa(self, value):
+
+        self.kappa_positive = value
+        self.update()
+
+
+    def set_negative_kappa(self, value):
+
+        self.kappa_negative = value
+        self.update()
+
+
+    def set_deadzone(self, degrees):
+
+        self.deadzone_rad = math.radians(degrees)
+        self.update()
+
 
 
     def spring_torque(self):
@@ -148,6 +167,7 @@ class SpringWidget(QWidget):
             self.reference_angle_rad
         )
 
+
         if error > self.deadzone_rad:
 
             return (
@@ -156,7 +176,7 @@ class SpringWidget(QWidget):
             )
 
 
-        elif error < -self.deadzone_rad:
+        if error < -self.deadzone_rad:
 
             return (
                 -self.kappa_negative *
@@ -172,7 +192,6 @@ class SpringWidget(QWidget):
 
         del event
 
-
         painter = QPainter(self)
 
         painter.setRenderHint(
@@ -183,17 +202,12 @@ class SpringWidget(QWidget):
         w = self.width()
         h = self.height()
 
-
         cx = w/2
         cy = h/2
 
 
-        # ------------------------------------------------
+
         # Motor body
-        # ------------------------------------------------
-
-        motor_radius = 65
-
 
         painter.setPen(
             QPen(
@@ -205,25 +219,19 @@ class SpringWidget(QWidget):
 
         painter.drawEllipse(
             QPointF(cx,cy),
-            motor_radius,
-            motor_radius
+            65,
+            65
         )
 
 
-        # motor shaft angle
 
-        shaft_length = 110
+        # Rotor shaft
 
+        shaft = 120
 
-        angle = self.angle_rad
-
-
-        shaft_end = QPointF(
-            cx +
-            shaft_length*math.cos(angle),
-
-            cy -
-            shaft_length*math.sin(angle)
+        end = QPointF(
+            cx + shaft*math.cos(self.angle_rad),
+            cy - shaft*math.sin(self.angle_rad)
         )
 
 
@@ -237,18 +245,16 @@ class SpringWidget(QWidget):
 
         painter.drawLine(
             QPointF(cx,cy),
-            shaft_end
+            end
         )
 
 
 
-        # ------------------------------------------------
-        # zero reference line
-        # ------------------------------------------------
+        # zero position
 
         painter.setPen(
             QPen(
-                QColor(160,160,160),
+                QColor(150,150,150),
                 2,
                 Qt.PenStyle.DashLine
             )
@@ -256,70 +262,44 @@ class SpringWidget(QWidget):
 
 
         painter.drawLine(
-            QPointF(cx-150,cy),
-            QPointF(cx+150,cy)
+            QPointF(cx-170,cy),
+            QPointF(cx+170,cy)
         )
 
 
 
-        # ------------------------------------------------
-        # rotational springs
-        # ------------------------------------------------
+        # springs
 
-
-        positive_active = (
-            angle >
+        self._draw_rotational_spring(
+            painter,
+            cx,
+            cy,
+            1,
+            self.angle_rad >
             self.deadzone_rad
         )
 
 
-        negative_active = (
-            angle <
+        self._draw_rotational_spring(
+            painter,
+            cx,
+            cy,
+            -1,
+            self.angle_rad <
             -self.deadzone_rad
         )
 
 
-        self._draw_rotational_spring(
-            painter,
-            cx,
-            cy,
-            side=1,
-            active=positive_active
-        )
-
-
-        self._draw_rotational_spring(
-            painter,
-            cx,
-            cy,
-            side=-1,
-            active=negative_active
-        )
-
-
-
-        # ------------------------------------------------
-        # torque arrow
-        # ------------------------------------------------
 
         self._draw_torque_arrow(
             painter,
-            QPointF(
-                cx,
-                cy-160
-            ),
+            QPointF(cx,cy-170),
             self.measured_torque
         )
 
 
-
-        # ------------------------------------------------
-        # information
-        # ------------------------------------------------
-
-
         painter.setPen(
-            QColor(40,40,40)
+            QColor(30,30,30)
         )
 
 
@@ -333,35 +313,28 @@ class SpringWidget(QWidget):
         painter.drawText(
             20,
             55,
-            f"Deadzone: ±{math.degrees(self.deadzone_rad):.1f} deg"
-        )
-
-
-        painter.drawText(
-            20,
-            80,
-            f"K+: {self.kappa_positive:.2f} Nm/rad"
-        )
-
-
-        painter.drawText(
-            20,
-            105,
-            f"K-: {self.kappa_negative:.2f} Nm/rad"
-        )
-
-
-        painter.drawText(
-            20,
-            130,
             f"Spring torque: {self.spring_torque():.3f} Nm"
         )
 
 
         painter.drawText(
             20,
-            155,
-            f"Measured torque: {self.measured_torque:.3f} Nm"
+            80,
+            f"K+: {self.kappa_positive:.2f}"
+        )
+
+
+        painter.drawText(
+            20,
+            105,
+            f"K-: {self.kappa_negative:.2f}"
+        )
+
+
+        painter.drawText(
+            20,
+            130,
+            f"Deadzone: {math.degrees(self.deadzone_rad):.1f} deg"
         )
 
 
@@ -376,39 +349,19 @@ class SpringWidget(QWidget):
     ):
 
 
-        radius = 125
-
+        radius = 130
 
         if side > 0:
-
-            color = QColor(
-                40,
-                160,
-                70
-            )
-
+            color = QColor(40,160,70)
             start = 0
 
-
         else:
-
-            color = QColor(
-                180,
-                70,
-                50
-            )
-
+            color = QColor(190,70,50)
             start = math.pi
 
 
-
         if not active:
-
-            color = QColor(
-                180,
-                180,
-                180
-            )
+            color = QColor(170,170,170)
 
 
         painter.setPen(
@@ -421,11 +374,10 @@ class SpringWidget(QWidget):
 
         points=[]
 
+        turns=5
 
-        turns = 4
 
-
-        for i in range(100):
+        for i in range(120):
 
             theta = (
                 start +
@@ -434,7 +386,7 @@ class SpringWidget(QWidget):
                 math.pi *
                 turns *
                 i /
-                99
+                119
             )
 
 
@@ -447,22 +399,11 @@ class SpringWidget(QWidget):
             )
 
 
-            x = (
-                cx +
-                r *
-                math.cos(theta)
-            )
-
-
-            y = (
-                cy -
-                r *
-                math.sin(theta)
-            )
-
-
             points.append(
-                QPointF(x,y)
+                QPointF(
+                    cx+r*math.cos(theta),
+                    cy-r*math.sin(theta)
+                )
             )
 
 
@@ -483,13 +424,12 @@ class SpringWidget(QWidget):
             return
 
 
-        length = 70
+        direction = 1 if torque>0 else -1
 
 
-        direction = (
-            1
-            if torque > 0
-            else -1
+        end = QPointF(
+            origin.x()+direction*70,
+            origin.y()
         )
 
 
@@ -501,35 +441,165 @@ class SpringWidget(QWidget):
         )
 
 
-        end = QPointF(
-            origin.x()+direction*length,
-            origin.y()
-        )
-
-
         painter.drawLine(
             origin,
             end
         )
 
 
-        painter.drawLine(
-            end,
-            QPointF(
-                end.x()-direction*10,
-                end.y()-10
-            )
+
+class SpringPage(QWidget):
+
+    def __init__(self,parent=None):
+
+        super().__init__(parent)
+
+
+        self.spring_view = SpringWidget()
+
+
+        self.angle_label = QLabel(
+            "Angle: 0 deg"
+        )
+
+        self.torque_label = QLabel(
+            "Torque: 0 Nm"
         )
 
 
-        painter.drawLine(
-            end,
-            QPointF(
-                end.x()-direction*10,
-                end.y()+10
-            )
+        self.kp = QDoubleSpinBox()
+        self.kp.setRange(0,20)
+        self.kp.setValue(2.0)
+        self.kp.setSuffix(" Nm/rad")
+
+
+        self.kn = QDoubleSpinBox()
+        self.kn.setRange(0,20)
+        self.kn.setValue(1.0)
+        self.kn.setSuffix(" Nm/rad")
+
+
+        self.deadzone = QDoubleSpinBox()
+        self.deadzone.setRange(0,30)
+        self.deadzone.setValue(5)
+        self.deadzone.setSuffix(" deg")
+
+
+        reset = QPushButton(
+            "Reset reference"
         )
 
+
+        controls = QHBoxLayout()
+
+        controls.addWidget(
+            self.angle_label
+        )
+
+        controls.addWidget(
+            self.torque_label
+        )
+
+        controls.addStretch()
+
+
+        controls.addWidget(
+            QLabel("K+")
+        )
+
+        controls.addWidget(
+            self.kp
+        )
+
+
+        controls.addWidget(
+            QLabel("K-")
+        )
+
+        controls.addWidget(
+            self.kn
+        )
+
+
+        controls.addWidget(
+            QLabel("Deadzone")
+        )
+
+        controls.addWidget(
+            self.deadzone
+        )
+
+
+        controls.addWidget(
+            reset
+        )
+
+
+
+        layout = QVBoxLayout(self)
+
+        layout.addWidget(
+            self.spring_view,
+            1
+        )
+
+        layout.addLayout(
+            controls
+        )
+
+
+        self.kp.valueChanged.connect(
+            self.spring_view.set_positive_kappa
+        )
+
+        self.kn.valueChanged.connect(
+            self.spring_view.set_negative_kappa
+        )
+
+
+        self.deadzone.valueChanged.connect(
+            self.spring_view.set_deadzone
+        )
+
+
+        reset.clicked.connect(
+            self.reset_reference
+        )
+
+
+
+    def update_measurements(
+        self,
+        angle_rad,
+        torque
+    ):
+
+
+        self.spring_view.set_angle(
+            angle_rad
+        )
+
+        self.spring_view.set_measured_torque(
+            torque
+        )
+
+
+        self.angle_label.setText(
+            f"Angle: {math.degrees(angle_rad):.2f} deg"
+        )
+
+
+        self.torque_label.setText(
+            f"Torque: {torque:.3f} Nm"
+        )
+
+
+
+    def reset_reference(self):
+
+        self.spring_view.set_reference_angle(
+            self.spring_view.angle_rad
+        )
 class SpringPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
