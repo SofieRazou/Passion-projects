@@ -106,7 +106,6 @@ def find_target_variables():
     found = {}
     variables = plat.ActiveVariableDescription.Variables
 
-    # Use Count when supported by the dSPACE collection
     try:
         variable_count = variables.Count
     except Exception:
@@ -116,6 +115,9 @@ def find_target_variables():
         try:
             var = variables.Item(i)
 
+            if var.Name == "Out1":
+                print(var.Description)
+
             if var.Name in TARGET_VARIABLES:
                 found[var.Name] = var
 
@@ -123,79 +125,6 @@ def find_target_variables():
             continue
 
     return found
-
-
-try:
-    variable_handles = find_target_variables()
-
-    print("Found variables:", list(variable_handles.keys()))
-
-    missing_variables = [
-        name
-        for name in TARGET_VARIABLES
-        if name not in variable_handles
-    ]
-
-    if missing_variables:
-        print("Missing variables:", missing_variables)
-
-    print("UDP sender started.")
-    print("Press Ctrl+C to stop.")
-    print("Maximum runtime:", MAX_RUNTIME, "seconds")
-
-    start_time = time.time()
-    packet_counter = 0
-
-    while running:
-
-        current_time = time.time()
-        elapsed_time = current_time - start_time
-
-        # Fallback termination condition
-        if elapsed_time >= MAX_RUNTIME:
-            print("Maximum runtime reached.")
-            break
-
-        values = {
-            "packet": packet_counter,
-            "timestamp": current_time,
-            "elapsed_time": elapsed_time,
-        }
-
-        for variable_name in TARGET_VARIABLES:
-
-            variable_handle = variable_handles.get(variable_name)
-
-            if variable_handle is None:
-                values[variable_name] = None
-                continue
-
-            try:
-                values[variable_name] = variable_handle.ValueConverted
-
-            except Exception as error:
-                values[variable_name] = None
-                print(
-                    "Could not read {}: {}".format(
-                        variable_name,
-                        error
-                    )
-                )
-
-        packet = json.dumps(values)
-
-        sock.sendto(
-            packet.encode("utf-8"),
-            (UDP_IP, UDP_PORT)
-        )
-
-        # Do not print every packet at 100 Hz
-        if packet_counter % 100 == 0:
-            print("Sent:", packet)
-
-        packet_counter += 1
-
-        time.sleep(SAMPLE_TIME)
 
 except KeyboardInterrupt:
     print("\nCtrl+C detected. Stopping sender.")
