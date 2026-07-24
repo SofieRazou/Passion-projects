@@ -28,13 +28,18 @@ roadCenters = [ ...
 
 road(scenario, roadCenters);
 
-waypoints = evalin('base', 'waypoints');
+
 %% Ego vehicle
 egoVehicle = vehicle(scenario);
 
-%% Assign trajectory
+
+%% Prepare waypoints
 w = waypoints(:,1:2);
+
+
+%% Assign trajectory
 trajectory(egoVehicle, w, u);
+
 
 %% Visualize
 figure('Name','Driving Scenario');
@@ -43,9 +48,12 @@ plot(scenario,...
     'Waypoints','on',...
     'RoadCenters','on');
 
+
+%% Run simulation
 restart(scenario);
 
-%% Run the simulation
 while advance(scenario)
     drawnow;
+end
+
 end
