@@ -1,9 +1,19 @@
-function [scenario, egoVehicle] = drive1(waypoints, u)
+function [scenario, egoVehicle] = drive1()
 
-%% Create scenario
+%% Load trajectory data from workspace
+waypoints = evalin('base','waypoints');
+u = evalin('base','u');
+
+
+%% Keep only X and Y coordinates
+waypoints = waypoints(:,1:2);
+
+
+%% Create driving scenario
 scenario = drivingScenario;
 
-%% Road
+
+%% Define road
 roadCenters = [ ...
     55.8 5.9 0;
     42.4 16.4 0;
@@ -26,34 +36,49 @@ roadCenters = [ ...
    53.4 -3.3 0;
    55.8 5.9 0];
 
-road(scenario, roadCenters);
+
+road(scenario,roadCenters);
 
 
-%% Ego vehicle
+%% Create ego vehicle
 egoVehicle = vehicle(scenario);
 
 
-%% Prepare waypoints
-w = waypoints(:,1:2);
+%% Make sure velocity input matches waypoints
+
+if length(u)==1
+    u = u*ones(size(waypoints,1),1);
+end
+
+
+if length(u) ~= size(waypoints,1)
+    error('Velocity vector u must have the same number of elements as waypoints')
+end
 
 
 %% Assign trajectory
-trajectory(egoVehicle, w, u);
+trajectory(egoVehicle, waypoints, u);
 
 
-%% Visualize
-figure('Name','Driving Scenario');
+%% Plot scenario
+figure('Name','Driving Scenario')
 
 plot(scenario,...
     'Waypoints','on',...
-    'RoadCenters','on');
+    'RoadCenters','on')
+
+title('Ego Vehicle Trajectory')
 
 
 %% Run simulation
-restart(scenario);
+restart(scenario)
 
 while advance(scenario)
-    drawnow;
+
+    pause(0.01)
+    drawnow
+
 end
+
 
 end
