@@ -95,220 +95,440 @@ class UdpReceiver:
 
 
 class SpringWidget(QWidget):
-    """Draws a horizontal spring connected to a movable handle."""
+    """
+    Visualisation of an asymmetric rotational spring around the motor.
+
+    Positive rotation:
+        +K spring after positive deadzone
+
+    Negative rotation:
+        -K spring after negative deadzone
+    """
 
     def __init__(self, parent=None):
         super().__init__(parent)
 
         self.angle_rad = 0.0
         self.measured_torque = 0.0
+
         self.reference_angle_rad = 0.0
-        self.kappa = 1.0
 
-        self.setMinimumHeight(300)
+        # asymmetric spring parameters
+        self.kappa_positive = 2.0   # Nm/rad
+        self.kappa_negative = 0.8   # Nm/rad
 
-    def set_angle(self, angle_rad: float) -> None:
+        # rotational deadzone
+        self.deadzone_rad = math.radians(5)
+
+        self.setMinimumHeight(400)
+
+
+    def set_angle(self, angle_rad):
+
         self.angle_rad = angle_rad
         self.update()
 
-    def set_measured_torque(self, torque: float) -> None:
+
+    def set_measured_torque(self, torque):
+
         self.measured_torque = torque
         self.update()
 
-    def set_reference_angle(self, reference_rad: float) -> None:
+
+    def set_reference_angle(self, reference_rad):
+
         self.reference_angle_rad = reference_rad
         self.update()
 
-    def set_kappa(self, kappa: float) -> None:
-        self.kappa = kappa
-        self.update()
 
-    def spring_torque(self) -> float:
-        """Torque calculated from the virtual spring model."""
-        return -self.kappa * (
-            self.angle_rad - self.reference_angle_rad
+    def spring_torque(self):
+
+        error = (
+            self.angle_rad -
+            self.reference_angle_rad
         )
 
-    def paintEvent(self, event) -> None:
+        if error > self.deadzone_rad:
+
+            return (
+                -self.kappa_positive *
+                (error-self.deadzone_rad)
+            )
+
+
+        elif error < -self.deadzone_rad:
+
+            return (
+                -self.kappa_negative *
+                (error+self.deadzone_rad)
+            )
+
+
+        return 0.0
+
+
+
+    def paintEvent(self,event):
+
         del event
 
+
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        width = self.width()
-        height = self.height()
-
-        center_y = height * 0.52
-        fixed_x = width * 0.12
-
-        max_visual_displacement = width * 0.28
-        maximum_angle = math.radians(30)
-
-        normalized_angle = max(
-            -1.0,
-            min(1.0, self.angle_rad / maximum_angle),
+        painter.setRenderHint(
+            QPainter.RenderHint.Antialiasing
         )
 
-        equilibrium_x = width * 0.52
-        handle_x = equilibrium_x + (
-            normalized_angle * max_visual_displacement
+
+        w = self.width()
+        h = self.height()
+
+
+        cx = w/2
+        cy = h/2
+
+
+        # ------------------------------------------------
+        # Motor body
+        # ------------------------------------------------
+
+        motor_radius = 65
+
+
+        painter.setPen(
+            QPen(
+                QColor(60,60,60),
+                4
+            )
         )
 
-        axis_pen = QPen(QColor(140, 140, 140), 1)
-        axis_pen.setStyle(Qt.PenStyle.DashLine)
-        painter.setPen(axis_pen)
+
+        painter.drawEllipse(
+            QPointF(cx,cy),
+            motor_radius,
+            motor_radius
+        )
+
+
+        # motor shaft angle
+
+        shaft_length = 110
+
+
+        angle = self.angle_rad
+
+
+        shaft_end = QPointF(
+            cx +
+            shaft_length*math.cos(angle),
+
+            cy -
+            shaft_length*math.sin(angle)
+        )
+
+
+        painter.setPen(
+            QPen(
+                QColor(30,90,200),
+                6
+            )
+        )
+
+
         painter.drawLine(
-            QPointF(equilibrium_x, center_y - 80),
-            QPointF(equilibrium_x, center_y + 80),
+            QPointF(cx,cy),
+            shaft_end
         )
 
-        wall_pen = QPen(QColor(70, 70, 70), 5)
-        painter.setPen(wall_pen)
+
+
+        # ------------------------------------------------
+        # zero reference line
+        # ------------------------------------------------
+
+        painter.setPen(
+            QPen(
+                QColor(160,160,160),
+                2,
+                Qt.PenStyle.DashLine
+            )
+        )
+
+
         painter.drawLine(
-            QPointF(fixed_x, center_y - 75),
-            QPointF(fixed_x, center_y + 75),
+            QPointF(cx-150,cy),
+            QPointF(cx+150,cy)
         )
 
-        self._draw_spring(
-            painter=painter,
-            start=QPointF(fixed_x, center_y),
-            end=QPointF(handle_x, center_y),
-            coils=12,
-            amplitude=22,
+
+
+        # ------------------------------------------------
+        # rotational springs
+        # ------------------------------------------------
+
+
+        positive_active = (
+            angle >
+            self.deadzone_rad
         )
 
-        handle_pen = QPen(QColor(30, 90, 180), 8)
-        painter.setPen(handle_pen)
-        painter.drawLine(
-            QPointF(handle_x, center_y - 60),
-            QPointF(handle_x, center_y + 60),
+
+        negative_active = (
+            angle <
+            -self.deadzone_rad
         )
+
+
+        self._draw_rotational_spring(
+            painter,
+            cx,
+            cy,
+            side=1,
+            active=positive_active
+        )
+
+
+        self._draw_rotational_spring(
+            painter,
+            cx,
+            cy,
+            side=-1,
+            active=negative_active
+        )
+
+
+
+        # ------------------------------------------------
+        # torque arrow
+        # ------------------------------------------------
 
         self._draw_torque_arrow(
             painter,
-            QPointF(handle_x, center_y - 95),
-            self.measured_torque,
+            QPointF(
+                cx,
+                cy-160
+            ),
+            self.measured_torque
         )
 
-        painter.setPen(QColor(40, 40, 40))
 
-        angle_deg = math.degrees(self.angle_rad)
-        reference_deg = math.degrees(self.reference_angle_rad)
+
+        # ------------------------------------------------
+        # information
+        # ------------------------------------------------
+
+
+        painter.setPen(
+            QColor(40,40,40)
+        )
+
 
         painter.drawText(
             20,
             30,
-            f"Measured angle: {angle_deg:.2f}°",
+            f"Angle: {math.degrees(self.angle_rad):.2f} deg"
         )
+
+
         painter.drawText(
             20,
             55,
-            f"Reference: {reference_deg:.2f}°",
+            f"Deadzone: ±{math.degrees(self.deadzone_rad):.1f} deg"
         )
+
+
         painter.drawText(
             20,
             80,
-            f"Kappa: {self.kappa:.3f} Nm/rad",
+            f"K+: {self.kappa_positive:.2f} Nm/rad"
         )
+
+
         painter.drawText(
             20,
             105,
-            f"Measured torque: {self.measured_torque:.3f} Nm",
+            f"K-: {self.kappa_negative:.2f} Nm/rad"
         )
+
+
         painter.drawText(
             20,
             130,
-            f"Calculated spring torque: {self.spring_torque():.3f} Nm",
+            f"Spring torque: {self.spring_torque():.3f} Nm"
         )
 
-    @staticmethod
-    def _draw_spring(
-        painter: QPainter,
-        start: QPointF,
-        end: QPointF,
-        coils: int,
-        amplitude: float,
-    ) -> None:
-        spring_pen = QPen(QColor(50, 50, 50), 3)
-        painter.setPen(spring_pen)
 
-        lead_length = 20.0
-        usable_start_x = start.x() + lead_length
-        usable_end_x = end.x() - lead_length
+        painter.drawText(
+            20,
+            155,
+            f"Measured torque: {self.measured_torque:.3f} Nm"
+        )
 
-        if usable_end_x <= usable_start_x:
-            painter.drawLine(start, end)
-            return
 
-        points = [start, QPointF(usable_start_x, start.y())]
 
-        number_of_segments = coils * 2
-        spring_length = usable_end_x - usable_start_x
+    def _draw_rotational_spring(
+        self,
+        painter,
+        cx,
+        cy,
+        side,
+        active
+    ):
 
-        for index in range(number_of_segments + 1):
-            ratio = index / number_of_segments
-            x = usable_start_x + ratio * spring_length
 
-            if index == 0 or index == number_of_segments:
-                y = start.y()
-            else:
-                y = (
-                    start.y() - amplitude
-                    if index % 2
-                    else start.y() + amplitude
+        radius = 125
+
+
+        if side > 0:
+
+            color = QColor(
+                40,
+                160,
+                70
+            )
+
+            start = 0
+
+
+        else:
+
+            color = QColor(
+                180,
+                70,
+                50
+            )
+
+            start = math.pi
+
+
+
+        if not active:
+
+            color = QColor(
+                180,
+                180,
+                180
+            )
+
+
+        painter.setPen(
+            QPen(
+                color,
+                3
+            )
+        )
+
+
+        points=[]
+
+
+        turns = 4
+
+
+        for i in range(100):
+
+            theta = (
+                start +
+                side *
+                2 *
+                math.pi *
+                turns *
+                i /
+                99
+            )
+
+
+            r = (
+                radius +
+                12 *
+                math.sin(
+                    turns*theta
                 )
+            )
 
-            points.append(QPointF(x, y))
 
-        points.extend(
-            [
-                QPointF(usable_end_x, end.y()),
-                end,
-            ]
+            x = (
+                cx +
+                r *
+                math.cos(theta)
+            )
+
+
+            y = (
+                cy -
+                r *
+                math.sin(theta)
+            )
+
+
+            points.append(
+                QPointF(x,y)
+            )
+
+
+        painter.drawPolyline(
+            QPolygonF(points)
         )
 
-        painter.drawPolyline(QPolygonF(points))
 
-    @staticmethod
+
     def _draw_torque_arrow(
-        painter: QPainter,
-        origin: QPointF,
-        torque: float,
-    ) -> None:
-        if abs(torque) < 1e-6:
+        self,
+        painter,
+        origin,
+        torque
+    ):
+
+        if abs(torque)<1e-6:
             return
 
-        arrow_length = 65
-        direction = 1 if torque > 0 else -1
 
-        arrow_pen = QPen(QColor(190, 70, 50), 3)
-        painter.setPen(arrow_pen)
+        length = 70
+
+
+        direction = (
+            1
+            if torque > 0
+            else -1
+        )
+
+
+        painter.setPen(
+            QPen(
+                QColor(200,50,50),
+                3
+            )
+        )
+
 
         end = QPointF(
-            origin.x() + direction * arrow_length,
-            origin.y(),
+            origin.x()+direction*length,
+            origin.y()
         )
 
-        painter.drawLine(origin, end)
 
-        head_size = 10
+        painter.drawLine(
+            origin,
+            end
+        )
+
 
         painter.drawLine(
             end,
             QPointF(
-                end.x() - direction * head_size,
-                end.y() - head_size,
-            ),
+                end.x()-direction*10,
+                end.y()-10
+            )
         )
+
 
         painter.drawLine(
             end,
             QPointF(
-                end.x() - direction * head_size,
-                end.y() + head_size,
-            ),
+                end.x()-direction*10,
+                end.y()+10
+            )
         )
-
 
 class SpringPage(QWidget):
     def __init__(self, parent=None):
