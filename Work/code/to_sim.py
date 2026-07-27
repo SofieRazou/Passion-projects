@@ -1,24 +1,44 @@
-Cannot propagate bus signal from 'Output Port 1' of 'driving_scene1/Scenario Reader' to 'Input Port 1' of 'driving_scene1/Demux' because this input port requires a non-bus signal.
-
-If the destination block is a bus-capable block, ensure that the block configuration and its input signal(s) meet the requirements for bus support. Please see Simulink documentation for further information on composite (i.e. bus) signals and their proper usage. Alternately, if the input bus signal is virtual; consists only of scalar elements, 1-D elements, or either row or column vectors; and all elements have the same data type, signal type, and sampling mode, consider inserting a Bus to Vector conversion block in the signal path. Otherwise, consider using a Bus Selector block in the signal path.
-
-
-
-
 import numpy as np
 import socket
 
-UDP_IP = "192.168.0.10"
+UDP_IP = "127.0.0.1"
 UDP_PORT = 5005
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 trajectory = np.array([
-    [1.0, 2.0],
-    [3.0, 4.0],
-    [5.0, 6.0]
-], dtype=np.float32)
+    [55.8, 5.9],
+    [42.4, 16.4],
+    [37.3, 18.3],
+    [28.1, 25.6],
+    [20.3, 17.9],
+    [18.7, -5.3],
+    [14.6, 10.6],
+    [4.6, 12.8],
+    [2.2, 21.3],
+    [-1.8, 30.2],
+    [-4.8, 17.9],
+    [-4.9, 5.5],
+    [1.6, -4.4],
+    [10.8, -7.1],
+    [14.9, -13.1],
+    [26.0, -16.8],
+    [42.7, -31.8],
+    [51.1, -10.1],
+    [53.4, -3.3],
+    [55.8, 5.9]
+],dtype = np.float32)
 
 packet = trajectory.tobytes()
 
-sock.sendto(packet, (UDP_IP, UDP_PORT))
+try:
+    while True:
+        sock.sendto(packet, (UDP_IP, UDP_PORT))
+
+except KeyboardInterrupt:
+    print("Trajectory communication stopped by user...")
+
+finally:
+    print("Trajectory data deployed in simulink model")
+    sock.close()
+
