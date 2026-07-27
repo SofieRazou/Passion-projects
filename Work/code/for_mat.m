@@ -262,7 +262,6 @@ t = (0:num_points-1)';
 waypoints = timeseries(waypoints, t);
 fprintf("Real-time visualization stopped.\n");
 fprintf("Recorded %d trajectory points.\n", cnt); *)
-
 clear;
 clc;
 close all;
@@ -275,6 +274,7 @@ L = 1.0;            % Vehicle wheelbase [m]
 
 x = 0.0;            % Initial x-position [m]
 y = 0.0;            % Initial y-position [m]
+z_height = 0.5;     % Heights offset [m] to prevent 3D terrain collision errors
 
 %% Shared-memory file
 filePath = ...
@@ -326,7 +326,7 @@ road( ...
 egoCar = vehicle( ...
     scenario, ...
     "ClassID", 1, ...
-    "Position", double([x, y, 0]), ...
+    "Position", double([x, y, z_height]), ...
     "Yaw", 0);
 
 %% Open the driving scenario immediately
@@ -369,8 +369,9 @@ title(trajectoryAxes, "Real-Time Vehicle Trajectory");
 axis(trajectoryAxes, "equal");
 grid(trajectoryAxes, "on");
 
-%% Preallocate trajectory storage
+%% Preallocate trajectory & steering angle storage
 waypoints = zeros(1000, 3, "double");
+deltas = zeros(1000, 1, "double");  % Logging vector for delta steering values
 
 cnt = 0;
 lastSequence = uint64(0);
@@ -469,20 +470,20 @@ while isvalid(scenarioFigure) && isvalid(trajectoryFigure)
         continue;
     end
 
-    %% Store x and y as double trajectory values
+    %% Store x, y, z and delta values
     cnt = cnt + 1;
 
+    % Dynamically expand preallocated memory if buffer limit is reached
     if cnt > size(waypoints, 1)
-        waypoints = [ ...
-            waypoints; ...
-            zeros(1000, 3, "double") ...
-        ];
+        waypoints = [waypoints; zeros(1000, 3, "double")];
+        deltas = [deltas; zeros(1000, 1, "double")];
     end
 
-    waypoints(cnt, :) = double([x, y, 0.0]);
+    waypoints(cnt, :) = double([x, y, z_height]);
+    deltas(cnt, 1) = delta; % Save logged steering angle
 
     %% Update the car actor in real time
-    egoCar.Position = double([x, y, 0.0]);
+    egoCar.Position = double([x, y, z_height]);
 
     % MATLAB driving-scenario Yaw is in degrees
     egoCar.Yaw = double(rad2deg(thetaCommand));
@@ -520,16 +521,19 @@ while isvalid(scenarioFigure) && isvalid(trajectoryFigure)
         y);
 end
 
-%% Trim preallocated array and store clean trajectory
+%% Trim preallocated arrays and package into timeseries
 raw_waypoints = double(waypoints(1:cnt, :));
+raw_deltas = double(deltas(1:cnt, 1));
+
 num_points = size(raw_waypoints, 1);
 t = (0:num_points-1)' * time_step;
 
-% Format timeseries object ready for Simulink 'From Workspace'
+% Export objects for Simulink 'From Workspace' blocks
 waypoints_ts = timeseries(raw_waypoints, t);
+deltas_ts = timeseries(raw_deltas, t);
 
 fprintf("\nReal-time visualization stopped.\n");
-fprintf("Recorded %d trajectory points.\n", cnt);
+fprintf("Recorded %d trajectory & delta points.\n", cnt);
 
 %% Replay/Continue Execution with Saved Trajectory in Scenario
 if cnt > 1
