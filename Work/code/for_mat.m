@@ -257,6 +257,8 @@ end
 
 %% Keep only the recorded trajectory
 waypoints = double(waypoints(1:cnt, :));
-
+num_points = size(waypoints,1);
+t = (0:num_points-1)';
+waypoints = timeseries(waypoints, t);
 fprintf("Real-time visualization stopped.\n");
 fprintf("Recorded %d trajectory points.\n", cnt);
