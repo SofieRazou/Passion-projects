@@ -1,3 +1,8 @@
+
+Simulink cannot propagate the variable-size mode from the 'Output Port 1' of 'SimpleScenarioAndSensorModel3DSimulation/UDP Receive' to the 'Input Port 1' of 'SimpleScenarioAndSensorModel3DSimulation/Byte Unpack'. This input port expects a fixed-size mode. Examine the configuration of 'SimpleScenarioAndSensorModel3DSimulation/Byte Unpack' for one of the following scenarios: 1) the block does not support variable-size signals; 2) the block supports variable-size signals but needs to be configured for them.
+
+
+
 import numpy as np
 import socket
 
