@@ -6,7 +6,7 @@ import time
 FILE_PATH = r"C:\Users\javot\Desktop\sofia_code\shared_data.bin"
 
 FILE_SIZE = 24
-SAMPLE_PERIOD = 0.01   # 100 Hz
+SAMPLE_PERIOD = 0.01   # 100 Hz (10ms step)
 DURATION = 20.0        # seconds
 
 folder = os.path.dirname(FILE_PATH)
@@ -27,6 +27,8 @@ sequence = 0
 start_time = time.perf_counter()
 next_sample_time = start_time
 
+theta_command = 0.0  # Accumulated vehicle heading angle [rad]
+
 print("Starting Python writer...")
 print("Writing to:", FILE_PATH)
 
@@ -36,10 +38,12 @@ try:
         while time.perf_counter() - start_time < DURATION:
             elapsed_time = time.perf_counter() - start_time
 
-            # Example commands
-            # Replace these with the real values from your GUI or motor
-            delta = 0.05 * math.sin(0.5 * elapsed_time)
-            theta_command = 0.0
+            # 1. Gentle, noticeable steering angle delta [radians] (~11.5 degrees max)
+            delta = 0.2 * math.sin(0.4 * elapsed_time)
+
+            # 2. Update heading angle (theta) over time based on current steering angle
+            # Slow speed turning rate factor
+            theta_command += delta * SAMPLE_PERIOD * 1.5
 
             # Odd sequence: writing has started
             sequence += 1
@@ -49,7 +53,7 @@ try:
                 struct.pack("<Q", sequence)
             )
 
-            # Write the two double values
+            # Write the two double values (steering delta & cumulative heading)
             file.seek(8)
             file.write(
                 struct.pack(
