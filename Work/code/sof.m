@@ -27,4 +27,21 @@ end
 % Read the yaw value
 yaw = m.Data(1);
 
+
+import socket
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+destinations = [
+    ("127.0.0.1", 5005),
+    ("127.0.0.1", 5006)
+]
+
+while True:
+    yaw = 1.234
+    data = f"{yaw:.6f}".encode()
+
+    for dest in destinations:
+        sock.sendto(data, dest)
+
 end
