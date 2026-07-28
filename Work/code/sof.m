@@ -1,8 +1,15 @@
-filename = 'yaw_shared.bin';
+function yaw = read_yaw()
 
-m = memmapfile(filename,...
-    'Format','double',...
-    'Writable',false);
+persistent m
 
-yaw = m.Data;
-yaw_value = yaw(1);
+if isempty(m)
+    filename = 'yaw_shared.bin';
+
+    m = memmapfile(filename, ...
+        'Format', 'double', ...
+        'Writable', false);
+end
+
+yaw = m.Data(1);
+
+end
