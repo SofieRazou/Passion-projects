@@ -12,18 +12,16 @@ from shared_mem_manager import SManager
 UDP_IP = "134.105.60.99"
 UDP_PORT = 55001
 
-PACKET_SIZE = 16                 # 4 floats = 4*4 bytes
-PACKET_FORMAT = '<4f'            # little endian, 4 float32 values
+PACKET_SIZE = 16                 # 4 floats = 16 bytes
+PACKET_FORMAT = '<4f'            # little endian: angle, torque, phase1, phase2
 
 
 # ==============================
 # Outgoing UDP configuration
 # ==============================
 
-FORWARD_IP = "134.105.60.99"
-
-FORWARD_PORT_1 = 55002           # Simulink UDP receiver 1
-FORWARD_PORT_2 = 5006            # Simulink UDP receiver 2
+FORWARD_IP = "134.105.60.99"     # Use "127.0.0.1" if Simulink is on same PC
+FORWARD_PORT = 5006              # Simulink UDP Receive port
 
 
 # ==============================
@@ -51,9 +49,7 @@ sock.settimeout(6)
 print("--------------------------------")
 print("UDP receiver started")
 print(f"Listening on {UDP_IP}:{UDP_PORT}")
-print(f"Forwarding angle to:")
-print(f"  -> {FORWARD_IP}:{FORWARD_PORT_1}")
-print(f"  -> {FORWARD_IP}:{FORWARD_PORT_2}")
+print(f"Forwarding angle to {FORWARD_IP}:{FORWARD_PORT}")
 print("--------------------------------")
 
 
@@ -90,7 +86,7 @@ def main():
 
         while time.time() - start_time < 30:
 
-            # Receive UDP packet
+            # Receive packet from dSPACE/Simulink
             packet, addr = sock.recvfrom(2048)
 
             t = time.time() - start_time
@@ -98,8 +94,7 @@ def main():
 
             if len(packet) == PACKET_SIZE:
 
-                # Decode:
-                # angle, torque, phase1, phase2
+                # Decode incoming packet
                 angle_val, torque_val, phase1_val, phase2_val = struct.unpack(
                     PACKET_FORMAT,
                     packet
@@ -107,32 +102,23 @@ def main():
 
 
                 # ==============================
-                # Send angle to two UDP ports
+                # Forward ONLY angle to Simulink
                 # ==============================
 
-                # Send as double (8 bytes)
+                # Send angle as 8-byte double
                 angle_payload = struct.pack(
                     '<d',
                     float(angle_val)
                 )
 
-
-                # Receiver 1
                 forward_sock.sendto(
                     angle_payload,
-                    (FORWARD_IP, FORWARD_PORT_1)
-                )
-
-
-                # Receiver 2
-                forward_sock.sendto(
-                    angle_payload,
-                    (FORWARD_IP, FORWARD_PORT_2)
+                    (FORWARD_IP, FORWARD_PORT)
                 )
 
 
                 # ==============================
-                # Write to shared memory
+                # Write values to shared memory
                 # ==============================
 
                 mem_data[0] = angle_val
