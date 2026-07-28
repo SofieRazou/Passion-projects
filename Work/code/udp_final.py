@@ -5,64 +5,89 @@ import time
 from shared_mem_manager import SManager
 
 
-# ==============================
-# Incoming UDP configuration
-# ==============================
+# ==========================================================
+# Incoming UDP: dSPACE -> Python
+# ==========================================================
 
 UDP_IP = "134.105.60.99"
 UDP_PORT = 55001
 
-PACKET_SIZE = 16                 # 4 floats = 16 bytes
-PACKET_FORMAT = '<4f'            # little endian: angle, torque, phase1, phase2
+PACKET_SIZE = 16              # 4 x float32 = 16 bytes
+PACKET_FORMAT = '<4f'         # angle, torque, phase1, phase2
 
 
-# ==============================
-# Outgoing UDP configuration
-# ==============================
+# ==========================================================
+# Outgoing UDP: Python -> Simulink
+# ==========================================================
 
-FORWARD_IP = "134.105.60.99"     # Use "127.0.0.1" if Simulink is on same PC
-FORWARD_PORT = 5006              # Simulink UDP Receive port
+# If Simulink is on the SAME PC as Python:
+# use "127.0.0.1"
+
+# If Simulink is on another PC:
+# use the Simulink PC IP address
+
+FORWARD_IP = "134.105.60.99"
+
+FORWARD_PORT = 5006           # Simulink UDP Receive port
 
 
-# ==============================
-# Shared memory configuration
-# ==============================
+# ==========================================================
+# Shared memory
+# ==========================================================
 
 MEM_NAME = "shared_mem"
 
 # 4 double values:
-# angle, torque, phase1, phase2
-MEM_SIZE = 4 * 8                  # 32 bytes
+# angle
+# torque
+# phase1
+# phase2
+
+MEM_SIZE = 4 * 8               # 32 bytes
 
 
-# ==============================
-# Create receiving UDP socket
-# ==============================
+# ==========================================================
+# Create incoming UDP socket
+# ==========================================================
 
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock = socket.socket(
+    socket.AF_INET,
+    socket.SOCK_DGRAM
+)
 
-sock.bind((UDP_IP, UDP_PORT))
+sock.bind(
+    (UDP_IP, UDP_PORT)
+)
 
 sock.settimeout(6)
 
 
-print("--------------------------------")
-print("UDP receiver started")
-print(f"Listening on {UDP_IP}:{UDP_PORT}")
-print(f"Forwarding angle to {FORWARD_IP}:{FORWARD_PORT}")
-print("--------------------------------")
+print("======================================")
+print("Python UDP bridge started")
+print("======================================")
+print(f"Listening for dSPACE:")
+print(f"  IP   : {UDP_IP}")
+print(f"  PORT : {UDP_PORT}")
+print("")
+print(f"Forwarding angle to Simulink:")
+print(f"  IP   : {FORWARD_IP}")
+print(f"  PORT : {FORWARD_PORT}")
+print("======================================")
 
 
-# ==============================
-# Create forwarding socket
-# ==============================
+# ==========================================================
+# Create outgoing UDP socket
+# ==========================================================
 
-forward_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+forward_sock = socket.socket(
+    socket.AF_INET,
+    socket.SOCK_DGRAM
+)
 
 
-# ==============================
+# ==========================================================
 # Create shared memory
-# ==============================
+# ==========================================================
 
 manager = SManager()
 
@@ -72,80 +97,142 @@ sm, mem_data = manager.create_mem(
 )
 
 
-# ==============================
+print("Shared memory created successfully")
+print("Waiting for dSPACE packets...")
+print("")
+
+
+# ==========================================================
 # Main loop
-# ==============================
+# ==========================================================
 
 def main():
 
-    print("Shared memory created. Running...")
-
     start_time = time.time()
+
+    packet_counter = 0
+
 
     try:
 
-        while time.time() - start_time < 30:
+        while True:
 
-            # Receive packet from dSPACE/Simulink
+            # ----------------------------------------------
+            # Receive packet from dSPACE
+            # ----------------------------------------------
+
             packet, addr = sock.recvfrom(2048)
 
-            t = time.time() - start_time
+            packet_counter += 1
 
 
-            if len(packet) == PACKET_SIZE:
-
-                # Decode incoming packet
-                angle_val, torque_val, phase1_val, phase2_val = struct.unpack(
-                    PACKET_FORMAT,
-                    packet
-                )
+            print("--------------------------------------")
+            print(f"Packet number: {packet_counter}")
+            print(f"Received from: {addr}")
+            print(f"Packet size : {len(packet)} bytes")
 
 
-                # ==============================
-                # Forward ONLY angle to Simulink
-                # ==============================
+            # Check packet size
 
-                # Send angle as 8-byte double
-                angle_payload = struct.pack(
-                    '<d',
-                    float(angle_val)
-                )
-
-                forward_sock.sendto(
-                    angle_payload,
-                    (FORWARD_IP, FORWARD_PORT)
-                )
-
-
-                # ==============================
-                # Write values to shared memory
-                # ==============================
-
-                mem_data[0] = angle_val
-                mem_data[1] = torque_val
-                mem_data[2] = phase1_val
-                mem_data[3] = phase2_val
-
+            if len(packet) != PACKET_SIZE:
 
                 print(
-                    f"Angle: {angle_val:.3f} deg | "
-                    f"Torque: {torque_val:.3f} Nm | "
-                    f"Phase1: {phase1_val:.3f} A | "
-                    f"Phase2: {phase2_val:.3f} A"
+                    "WARNING: Wrong packet size!"
                 )
+
+                print(
+                    f"Expected {PACKET_SIZE}, got {len(packet)}"
+                )
+
+                continue
+
+
+
+            # ----------------------------------------------
+            # Decode dSPACE packet
+            # ----------------------------------------------
+
+            angle_val, torque_val, phase1_val, phase2_val = struct.unpack(
+                PACKET_FORMAT,
+                packet
+            )
+
+
+            print("Decoded values:")
+            print(f"  Angle  : {angle_val:.6f}")
+            print(f"  Torque : {torque_val:.6f}")
+            print(f"  Phase1 : {phase1_val:.6f}")
+            print(f"  Phase2 : {phase2_val:.6f}")
+
+
+
+            # ----------------------------------------------
+            # Forward ONLY angle to Simulink
+            # ----------------------------------------------
+
+            # Python sends:
+            # double = 8 bytes
+            # little endian
+
+            angle_payload = struct.pack(
+                '<d',
+                float(angle_val)
+            )
+
+
+            bytes_sent = forward_sock.sendto(
+                angle_payload,
+                (
+                    FORWARD_IP,
+                    FORWARD_PORT
+                )
+            )
+
+
+            print("Forwarding:")
+            print(f"  Sent bytes : {bytes_sent}")
+            print(f"  Destination: {FORWARD_IP}:{FORWARD_PORT}")
+
+
+
+            # ----------------------------------------------
+            # Write to shared memory
+            # ----------------------------------------------
+
+            mem_data[0] = angle_val
+            mem_data[1] = torque_val
+            mem_data[2] = phase1_val
+            mem_data[3] = phase2_val
+
+
+            print("Shared memory updated")
+            print("--------------------------------------")
+
 
 
     except socket.timeout:
 
-        print("UDP timeout")
+        print("")
+        print("ERROR: No UDP packet received for 6 seconds")
+        print("Check dSPACE -> Python connection")
+
 
     except KeyboardInterrupt:
 
-        print("Stopped by user")
+        print("")
+        print("Stopped manually")
+
+
+    except Exception as e:
+
+        print("")
+        print("UNEXPECTED ERROR:")
+        print(e)
 
 
     finally:
 
+        print("")
         print("Closing sockets...")
 
         sock.close()
