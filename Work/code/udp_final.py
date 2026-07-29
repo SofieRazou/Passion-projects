@@ -1,75 +1,54 @@
 import socket
 import struct
 import time
-from shared_mem_manager import SManager
 
-# --- Network Configuration ---
-# 1. Listening configuration (dSPACE sender)
-LISTEN_IP = "127.0.0.1"  # Or "0.0.0.0" / "134.105.60.99" if dSPACE is external
+LISTEN_IP = "134.105.60.99"  # dSPACE IP
 LISTEN_PORT = 5005
 
-# 2. Forwarding configuration (Simulink receiver)
 FORWARD_IP = "127.0.0.1"
 FORWARD_PORT = 5006
 
-# Packet specifications from dSPACE (4 floats = 16 bytes)
-INCOMING_PACKET_SIZE = 16
-INCOMING_FORMAT = '<4f'  # Little-endian 4 floats: angle, torque, phase1, phase2
+PACKET_SIZE = 16
+PACKET_FORMAT = '<4f'
 
-MEM_NAME = "shared_mem"
+# 1. Receiver socket
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.bind((LISTEN_IP, LISTEN_PORT))
+# Set a very low timeout (10 ms) so recvfrom doesn't block execution
+sock.settimeout(0.01)
 
-# Setup Sockets
-# Receiver Socket (dSPACE)
-recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-recv_sock.bind((LISTEN_IP, LISTEN_PORT))
-recv_sock.settimeout(6)
-
-# Forwarder Socket (Simulink)
+# 2. Forwarder socket
 forward_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-print(f"Listening for dSPACE on {LISTEN_IP}:{LISTEN_PORT}...")
-print(f"Forwarding Angle only to Simulink on {FORWARD_IP}:{FORWARD_PORT}...")
-
-# Initialize Shared Memory
-manager = SManager()
-sm, mem_data = manager.create_mem(mem_name=MEM_NAME, size=INCOMING_PACKET_SIZE)
+latest_angle = 0.0  # Store last known angle
 
 def main():
-    print("Shared memory ready. Press Ctrl+C to stop.")
-    start_time = time.time()
+    global latest_angle
+    print("Running non-blocking UDP receiver...")
     
-    try:
-        while True:
-            # Receive packet from dSPACE
-            packet, addr = recv_sock.recvfrom(2048)
-            t = time.time() - start_time
-
-            if len(packet) == INCOMING_PACKET_SIZE:
-                # Unpack 4 floats from dSPACE
-                angle_val, torque_val, phase1_val, phase2_val = struct.unpack(INCOMING_FORMAT, packet)
-
-                # --- 1. FORWARD ANGLE TO SIMULINK (PORT 5006) ---
-                # Option A: Pack as 8-byte double ('<d') - standard for Simulink UDP receive
-                angle_payload = struct.pack('<d', float(angle_val))
+    while True:
+        try:
+            # Non-blocking attempt to read from dSPACE
+            packet, addr = sock.recvfrom(2048)
+            if len(packet) == PACKET_SIZE:
+                angle_val, torque, p1, p2 = struct.unpack(PACKET_FORMAT, packet)
+                latest_angle = angle_val
+                print(f"Received from dSPACE: Angle = {latest_angle:.2f}°")
                 
-                # Option B: If your Simulink UDP block expects a 4-byte float ('<f'), use this instead:
-                # angle_payload = struct.pack('<f', float(angle_val))
-                
-                forward_sock.sendto(angle_payload, (FORWARD_IP, FORWARD_PORT))
+        except socket.timeout:
+            # No packet arrived within 10ms; continue running without blocking
+            pass
+        except KeyboardInterrupt:
+            break
 
-                # --- 2. UPDATE SHARED MEMORY ---
-                mem_data[0] = angle_val
-                mem_data[1] = torque_val
-                mem_data[2] = phase1_val
-                mem_data[3] = phase2_val
+        # Always attempt to forward the latest available angle to Simulink
+        angle_payload = struct.pack('<d', float(latest_angle))
+        forward_sock.sendto(angle_payload, (FORWARD_IP, FORWARD_PORT))
 
-                print(f"Angle: {angle_val:.2f}° forwarded to {FORWARD_PORT} | Torque: {torque_val:.2f} Nm")
+        time.sleep(0.005)  # Small sleep to regulate send rate (~200 Hz)
 
-    except (KeyboardInterrupt, socket.timeout):
-        print("\nExiting and closing sockets...")
-    finally:
-        recv_sock.close()
-        forward_sock.close()
+    sock.close()
+    forward_sock.close()
 
 if __name__ == "__main__":
     main()
