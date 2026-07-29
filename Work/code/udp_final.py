@@ -1,84 +1,74 @@
 import socket
 import struct
 import time
-import sys
 from shared_mem_manager import SManager
 
-# --- Incoming Network Configuration ---
-UDP_IP = "134.105.60.99"
-UDP_PORT = 55001
+# --- Network Configuration ---
+# 1. Listening configuration (dSPACE sender)
+LISTEN_IP = "127.0.0.1"  # Or "0.0.0.0" / "134.105.60.99" if dSPACE is external
+LISTEN_PORT = 5005
 
-# --- Outgoing Network Configuration (Dual Port Forwarding) ---
-FORWARD_IP = "134.105.60.99"
-FORWARD_PORT_1 = 55002  # First target port (e.g., Simulink Receive Block 1)
-FORWARD_PORT_2 = 55003  # Second target port (e.g., Simulink Receive Block 2 / Haptic UI)
-TARGET_PORTS = [FORWARD_PORT_1, FORWARD_PORT_2]
+# 2. Forwarding configuration (Simulink receiver)
+FORWARD_IP = "127.0.0.1"
+FORWARD_PORT = 5006
 
-REDUNDANCY_BURST = 1  # Set > 1 if packet loss over network is expected
-
-PACKET_SIZE = 16
-PACKET_FORMAT = '<4f'  # Incoming payload format (4 floats = 16 bytes)
+# Packet specifications from dSPACE (4 floats = 16 bytes)
+INCOMING_PACKET_SIZE = 16
+INCOMING_FORMAT = '<4f'  # Little-endian 4 floats: angle, torque, phase1, phase2
 
 MEM_NAME = "shared_mem"
 
-# 1. Receiver socket
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.bind((UDP_IP, UDP_PORT))
-sock.settimeout(6)
+# Setup Sockets
+# Receiver Socket (dSPACE)
+recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+recv_sock.bind((LISTEN_IP, LISTEN_PORT))
+recv_sock.settimeout(6)
 
-# 2. Forwarder socket
+# Forwarder Socket (Simulink)
 forward_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-print(f"Listening for incoming UDP packets on {UDP_IP}:{UDP_PORT}...")
-print(f"Forwarding live Angle to ports {TARGET_PORTS} on IP {FORWARD_IP}...")
+print(f"Listening for dSPACE on {LISTEN_IP}:{LISTEN_PORT}...")
+print(f"Forwarding Angle only to Simulink on {FORWARD_IP}:{FORWARD_PORT}...")
 
+# Initialize Shared Memory
 manager = SManager()
-sm, mem_data = manager.create_mem(mem_name=MEM_NAME, size=PACKET_SIZE)
+sm, mem_data = manager.create_mem(mem_name=MEM_NAME, size=INCOMING_PACKET_SIZE)
 
-time_arr = []
-
-def main(): 
-    print("Shared memory created. Press Ctrl+C to exit.")
-
+def main():
+    print("Shared memory ready. Press Ctrl+C to stop.")
     start_time = time.time()
-    sequence_id = 0
-
+    
     try:
-        while time.time() - start_time < 30:
-            packet, addr = sock.recvfrom(2048)
+        while True:
+            # Receive packet from dSPACE
+            packet, addr = recv_sock.recvfrom(2048)
             t = time.time() - start_time
-            
-            if len(packet) == PACKET_SIZE:
-                angle_val, torque_val, phase1_val, phase2_val = struct.unpack(PACKET_FORMAT, packet)
 
-                # --- 1. PACK ANGLE PAYLOAD FOR FORWARDING ---
-                # Option A: Standard double precision float (8 bytes)
+            if len(packet) == INCOMING_PACKET_SIZE:
+                # Unpack 4 floats from dSPACE
+                angle_val, torque_val, phase1_val, phase2_val = struct.unpack(INCOMING_FORMAT, packet)
+
+                # --- 1. FORWARD ANGLE TO SIMULINK (PORT 5006) ---
+                # Option A: Pack as 8-byte double ('<d') - standard for Simulink UDP receive
                 angle_payload = struct.pack('<d', float(angle_val))
                 
-                # Option B: Double precision float with sequence ID (12 bytes)
-                # angle_payload = struct.pack('>Id', sequence_id, float(angle_val))
+                # Option B: If your Simulink UDP block expects a 4-byte float ('<f'), use this instead:
+                # angle_payload = struct.pack('<f', float(angle_val))
+                
+                forward_sock.sendto(angle_payload, (FORWARD_IP, FORWARD_PORT))
 
-                # --- 2. RELIABLY FORWARD TO MULTIPLE PORTS ---
-                for port in TARGET_PORTS:
-                    destination = (FORWARD_IP, port)
-                    for _ in range(REDUNDANCY_BURST):
-                        forward_sock.sendto(angle_payload, destination)
-
-                # --- 3. WRITE TO SHARED MEMORY ---
+                # --- 2. UPDATE SHARED MEMORY ---
                 mem_data[0] = angle_val
                 mem_data[1] = torque_val
                 mem_data[2] = phase1_val
                 mem_data[3] = phase2_val
-                time_arr.append(t)
-                
-                print(f"LIVE Angle: {angle_val:.2f}° | Forwarded to Ports {TARGET_PORTS} | Torque: {torque_val:.2f} Nm")
-                sequence_id += 1
-            
+
+                print(f"Angle: {angle_val:.2f}° forwarded to {FORWARD_PORT} | Torque: {torque_val:.2f} Nm")
+
     except (KeyboardInterrupt, socket.timeout):
-        print("Exiting execution...")
+        print("\nExiting and closing sockets...")
     finally:
-        print("Closing network sockets...")
-        sock.close()
+        recv_sock.close()
         forward_sock.close()
 
 if __name__ == "__main__":
