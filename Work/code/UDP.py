@@ -110,30 +110,30 @@
 
 # if __name__ == "__main__":
 #     main()
+import os
 import socket
 import struct
 import time
-import math
 from shared_mem_manager import SManager
 
 # --- Network Configuration ---
 ANY_IP = "0.0.0.0"          # Listen on ALL network interfaces
 UDP_PORT_LISTEN = 5005      # Fetch incoming dSPACE/Simulink info here
 
-FORWARD_IP = "127.0.0.1"    # Destination port for Simulink
-FORWARD_PORT = 5006       
+FORWARD_IP = "127.0.0.1"    # Destination IP for Simulink
+FORWARD_PORT = 5006         # Destination port for Simulink
 
 MEM_NAME = "shared_mem"
 
 FILE_PATH = "angle_logs.txt"
+TEMP_FILE_PATH = "angle_logs.tmp"
 
 # --- 1. Set Up Receiver Socket ---
 recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 recv_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 recv_sock.bind((ANY_IP, UDP_PORT_LISTEN))
 
-# CRITICAL FIX: Set a 50ms timeout instead of non-blocking mode.
-# This lets Python wait for real incoming packets instead of instantly skipping to fallback!
+# 50ms timeout to allow fallback if dSPACE stops sending
 recv_sock.settimeout(0.05) 
 
 # --- 2. Set Up Forwarder Socket ---
@@ -151,12 +151,34 @@ manager = SManager()
 sm, mem_data = manager.create_mem(mem_name=MEM_NAME, size=32) 
 
 
+def safe_file_write(file_path, temp_path, value):
+    """Safely writes a value to a file using atomic replacement."""
+    try:
+        with open(temp_path, "w") as f:
+            f.write(f"{value}\n")
+        os.replace(temp_path, file_path)
+    except Exception as e:
+        pass
+
+
+def safe_file_read(file_path):
+    """Reads the last recorded angle from the file safely."""
+    try:
+        if os.path.exists(file_path):
+            with open(file_path, "r") as fread:
+                data = fread.readline().strip()
+                if data:
+                    return float(data)
+    except Exception:
+        pass
+    return 0.0  # Fallback default if file read fails
+
+
 def main():
     print("Shared memory allocated. Relaying data (Press Ctrl+C to stop)...\n")
 
     start_time = time.time()
     packet_count = 0
-    t = 0.0
 
     try:
         # Run loop for 30 seconds
@@ -184,36 +206,31 @@ def main():
                     print(f"Warning: Unexpected packet size ({raw_size} bytes) from {addr}")
 
                 if angle_val is not None:
-                    # Write to Shared Memory
-                    with open(FILE_PATH, "w") as f:
-                        f.write(str(angle_val))
+                    angle_to_send = float(angle_val)
+                    data_received = True
+
+                    # Update Shared Memory
                     mem_data[0] = angle_val
                     mem_data[1] = torque_val
                     mem_data[2] = phase1_val
                     mem_data[3] = phase2_val
 
-                    angle_to_send = float(angle_val)
-                    data_received = True
+                    # Write latest angle to file atomically
+                    safe_file_write(FILE_PATH, TEMP_FILE_PATH, angle_to_send)
 
             except socket.timeout:
-                # Triggered ONLY when no packet arrives within 50ms
                 data_received = False
 
-            # --- Step B: Fallback test signal ONLY if port 5005 timed out ---
+            # --- Step B: Fallback read from file ONLY if port 5005 timed out ---
             if not data_received:
-                # angle_to_send = 45.0 * math.sin(t)  # Generates test sine wave [-45°, +45°]
-                # t += 0.05
-                # time.sleep(0.05)  # Pace fallback rate to ~20Hz
-                with open(FILE_PATH, "r") as fread:
-                    angle_data = fread.readline().strip()
-                    angle_send  = float(angle_data)
-    
+                angle_to_send = safe_file_read(FILE_PATH)
+
             # --- Step C: Forward angle to Simulink on port 5006 ---
-            angle_payload = struct.pack('<d', angle_send)
+            angle_payload = struct.pack('<d', angle_to_send)
             fwd_sock.sendto(angle_payload, (FORWARD_IP, FORWARD_PORT))
 
             packet_count += 1
-            mode_tag = "REAL DATA (5005)" if data_received else "FALLBACK SINE"
+            mode_tag = "REAL DATA (5005)" if data_received else "FALLBACK FILE"
 
             print(f"[{packet_count:04d}] [{mode_tag}] Sent Angle: {angle_to_send:6.2f}° --> Port {FORWARD_PORT}")
 
@@ -224,7 +241,18 @@ def main():
         print("\nCleaning up resources...")
         recv_sock.close()
         fwd_sock.close()
-        print("Sockets closed cleanly.")
+        
+        if hasattr(manager, 'close'):
+            manager.close()
+            
+        # Remove temporary file if leftover
+        if os.path.exists(TEMP_FILE_PATH):
+            try:
+                os.remove(TEMP_FILE_PATH)
+            except OSError:
+                pass
+                
+        print("Sockets and Shared Memory closed cleanly.")
 
 
 if __name__ == "__main__":
