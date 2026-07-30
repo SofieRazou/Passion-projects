@@ -105,16 +105,14 @@ import math
 from shared_mem_manager import SManager
 
 # --- Network Configuration ---
-UDP_IP = "127.0.0.1"        # Localhost IP used by this script
-UDP_PORT_LISTEN = 5005     # Fetch incoming dSPACE/Simulink info here
-UDP_PORT_SEND = 5007       # Local port explicitly assigned to the sender socket
-
-FORWARD_IP = "127.0.0.1"    # Destination IP for Simulink
-FORWARD_PORT = 5006        # Destination port for Simulink Angle UDP Receive block
+UDP_IP = "127.0.0.1"      # Localhost IP
+UDP_PORT_LISTEN = 5005   # Fetch incoming dSPACE/Simulink info here
+FORWARD_IP = "127.0.0.1"  # Localhost IP
+FORWARD_PORT = 5006      # Destination port for Simulink Angle UDP Receive block
 
 # Packet Configuration: 4 single-precision floats (4 x 4 bytes = 16 bytes)
 PACKET_SIZE = 16
-PACKET_FORMAT = '<4f'       # Little-Endian, 4 floats
+PACKET_FORMAT = '<4f'     # Little-Endian, 4 floats
 
 MEM_NAME = "shared_mem"
 
@@ -124,15 +122,13 @@ recv_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 recv_sock.bind((UDP_IP, UDP_PORT_LISTEN))
 recv_sock.setblocking(False)  # Non-blocking mode
 
-# --- 2. Set Up Forwarder Socket (Bound to same IP, different port) ---
+# --- 2. Set Up Forwarder Socket (No bind needed, OS handles the source port) ---
 fwd_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 fwd_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-fwd_sock.bind((UDP_IP, UDP_PORT_SEND))  # Explicitly using the same IP but port 5007
 
 print("=" * 60)
-print(f"Fetching UDP info on   -> {UDP_IP}:{UDP_PORT_LISTEN} (Non-blocking)")
-print(f"Forwarding out from    -> {UDP_IP}:{UDP_PORT_SEND}")
-print(f"Sending Angle info to  -> {FORWARD_IP}:{FORWARD_PORT}")
+print(f"Listening for UDP data on -> {UDP_IP}:{UDP_PORT_LISTEN} (Non-blocking)")
+print(f"Forwarding Angle info to  -> {FORWARD_IP}:{FORWARD_PORT}")
 print("=" * 60 + "\n")
 
 # --- 3. Initialize Shared Memory ---
@@ -161,7 +157,7 @@ def main():
                     # Unpack incoming 4 floats
                     angle_val, torque_val, phase1_val, phase2_val = struct.unpack(PACKET_FORMAT, packet)
 
-                    # Write to Shared Memory
+                    # Write to Shared Memory arrays correctly
                     mem_data[0] = angle_val
                     mem_data[1] = torque_val
                     mem_data[2] = phase1_val
