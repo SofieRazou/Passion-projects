@@ -105,30 +105,31 @@ import math
 from shared_mem_manager import SManager
 
 # --- Network Configuration ---
-UDP_IP = "127.0.0.1"      # Localhost IP
-UDP_PORT_LISTEN = 5005   # Fetch incoming dSPACE/Simulink info here
-FORWARD_IP = "127.0.0.1"  # Localhost IP
-FORWARD_PORT = 5006      # Destination port for Simulink Angle UDP Receive block
+ANY_IP = "0.0.0.0"         # Listen on ALL network interfaces (Crucial for dSPACE/Hardware)
+UDP_PORT_LISTEN = 5005     # Fetch incoming dSPACE/Simulink info here
+
+FORWARD_IP = "127.0.0.1"   # Send back to the local machine hosting Simulink
+FORWARD_PORT = 5006        # Destination port for Simulink Angle UDP Receive block
 
 # Packet Configuration: 4 single-precision floats (4 x 4 bytes = 16 bytes)
 PACKET_SIZE = 16
-PACKET_FORMAT = '<4f'     # Little-Endian, 4 floats
+PACKET_FORMAT = '<4f'      # Little-Endian, 4 floats
 
 MEM_NAME = "shared_mem"
 
 # --- 1. Set Up Receiver Socket ---
 recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 recv_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-recv_sock.bind((UDP_IP, UDP_PORT_LISTEN))
-recv_sock.setblocking(False)  # Non-blocking mode
+recv_sock.bind((ANY_IP, UDP_PORT_LISTEN))  # Now intercepts actual hardware traffic
+recv_sock.setblocking(False)               # Non-blocking mode
 
-# --- 2. Set Up Forwarder Socket (No bind needed, OS handles the source port) ---
+# --- 2. Set Up Forwarder Socket (OS dynamically assigns temporary local source port) ---
 fwd_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 fwd_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
 print("=" * 60)
-print(f"Listening for UDP data on -> {UDP_IP}:{UDP_PORT_LISTEN} (Non-blocking)")
-print(f"Forwarding Angle info to  -> {FORWARD_IP}:{FORWARD_PORT}")
+print(f"Listening on ALL interfaces -> Port: {UDP_PORT_LISTEN} (Non-blocking)")
+print(f"Forwarding Angle info to     -> {FORWARD_IP}:{FORWARD_PORT}")
 print("=" * 60 + "\n")
 
 # --- 3. Initialize Shared Memory ---
@@ -157,7 +158,7 @@ def main():
                     # Unpack incoming 4 floats
                     angle_val, torque_val, phase1_val, phase2_val = struct.unpack(PACKET_FORMAT, packet)
 
-                    # Write to Shared Memory arrays correctly
+                    # Fix: Write to Shared Memory array slots properly using indices
                     mem_data[0] = angle_val
                     mem_data[1] = torque_val
                     mem_data[2] = phase1_val
@@ -165,6 +166,8 @@ def main():
                     
                     angle_to_send = float(angle_val)
                     data_received = True
+                else:
+                    print(f"Warning: Received packet of invalid size ({len(packet)} bytes). Expected {PACKET_SIZE}.")
 
             except BlockingIOError:
                 # Expected when no data is buffered on port 5005
@@ -175,6 +178,7 @@ def main():
                 angle_to_send = 45.0 * math.sin(t)  # Generates test sine wave [-45°, +45°]
 
             # --- Step C: Forward angle to Simulink on port 5006 ---
+            # Packed as '<d' (double precision float, 8 bytes)
             angle_payload = struct.pack('<d', angle_to_send)
             fwd_sock.sendto(angle_payload, (FORWARD_IP, FORWARD_PORT))
 
@@ -198,6 +202,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
