@@ -1,3 +1,8 @@
+python -c "import socket; s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.bind(('127.0.0.1', 5006)); print(s.recvfrom(1024))"
+
+
+
+
 Parameter overflow occurred for 'Gain' of 'SimpleScenarioAndSensorModel3DSimulation/CAPTMobile/PlantParser/UnrealCoordinatesOut/YawMultiplier'. The parameter's value is outside the range that the run-time data type can represent. The specified value was saturated to the closest representable value. To disable this warning or error, in the Configuration Parameters > Diagnostics > Data Validity pane, set the 'Detect overflow' option in the Parameters group to 'none'.
 
 
