@@ -35,7 +35,7 @@ print("=" * 60 + "\n")
 manager = SManager()
 sm, mem_data = manager.create_mem(mem_name=MEM_NAME, size=PACKET_SIZE)
 
-
+ANGLE = 0.0
 def main():
     print("Shared memory allocated. Streaming started (Press Ctrl+C to stop)...\n")
 
@@ -62,7 +62,7 @@ def main():
                     mem_data[1] = torque_val
                     mem_data[2] = phase1_val
                     mem_data[3] = phase2_val
-
+                    ANGLE = angle_val
                     angle_to_send = float(angle_val)
                     data_received = True
 
@@ -95,6 +95,9 @@ def main():
         fwd_sock.close()
         print("Sockets closed cleanly.")
 
+
+if __name__ == "__main__":
+    main()
 
 if __name__ == "__main__":
     main()
