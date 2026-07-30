@@ -1,54 +1,47 @@
 import socket
-import struct
 import time
 
-LISTEN_IP = "134.105.60.99"  # dSPACE IP
-LISTEN_PORT = 5005
+# 1. Define the shared IP and distinct ports
+IP = "127.0.0.1"
+PORT_A = 5001
+PORT_B = 5002
 
-FORWARD_IP = "127.0.0.1"
-FORWARD_PORT = 5006
+# 2. Create the UDP sockets (AF_INET = IPv4, SOCK_DGRAM = UDP)
+sock_a = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock_b = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-PACKET_SIZE = 16
-PACKET_FORMAT = '<4f'
+# 3. Bind the sockets to their respective ports
+sock_a.bind((IP, PORT_A))
+sock_b.bind((IP, PORT_B))
 
-# 1. Receiver socket
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.bind((LISTEN_IP, LISTEN_PORT))
-# Set a very low timeout (10 ms) so recvfrom doesn't block execution
-sock.settimeout(0.01)
+# 4. Set both sockets to non-blocking mode
+sock_a.setblocking(False)
+sock_b.setblocking(False)
 
-# 2. Forwarder socket
-forward_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+print("Sockets created, bound, and set to non-blocking.\n")
 
-latest_angle = 0.0  # Store last known angle
+# --- Communication Test ---
 
-def main():
-    global latest_angle
-    print("Running non-blocking UDP receiver...")
-    
-    while True:
-        try:
-            # Non-blocking attempt to read from dSPACE
-            packet, addr = sock.recvfrom(2048)
-            if len(packet) == PACKET_SIZE:
-                angle_val, torque, p1, p2 = struct.unpack(PACKET_FORMAT, packet)
-                latest_angle = angle_val
-                print(f"Received from dSPACE: Angle = {latest_angle:.2f}°")
-                
-        except socket.timeout:
-            # No packet arrived within 10ms; continue running without blocking
-            pass
-        except KeyboardInterrupt:
-            break
+# Socket A sends a message to Socket B's port
+message = b"Hello from Socket A!"
+sock_a.sendto(message, (IP, PORT_B))
+print(f"Socket A sent: '{message.decode()}' to port {PORT_B}")
 
-        # Always attempt to forward the latest available angle to Simulink
-        angle_payload = struct.pack('<d', float(latest_angle))
-        forward_sock.sendto(angle_payload, (FORWARD_IP, FORWARD_PORT))
+# Slight pause to ensure the OS routes the local packet (optional but good practice in tests)
+time.sleep(0.1) 
 
-        time.sleep(0.005)  # Small sleep to regulate send rate (~200 Hz)
+# Socket B attempts to read
+try:
+    # 1024 is the buffer size in bytes
+    data, addr = sock_b.recvfrom(1024)
+    print(f"Socket B received: '{data.decode()}' from {addr}")
+except BlockingIOError:
+    # In non-blocking mode, if no data is present, Python raises a BlockingIOError
+    print("Socket B: No data available to read right now.")
 
-    sock.close()
-    forward_sock.close()
-
-if __name__ == "__main__":
-    main()
+# Socket A attempts to read (but no one sent it anything)
+try:
+    data, addr = sock_a.recvfrom(1024)
+    print(f"Socket A received: '{data.decode()}' from {addr}")
+except BlockingIOError:
+    print("Socket A: No data available to read right now. Moving on!")
