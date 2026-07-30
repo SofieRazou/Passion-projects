@@ -110,68 +110,91 @@
 
 # if __name__ == "__main__":
 #     main()
+import queue
 import socket
 import struct
+import threading
 import time
-import math
 from shared_mem_manager import SManager
 
 # --- Network Configuration ---
-ANY_IP = "0.0.0.0"          # Listen on ALL network interfaces
-UDP_PORT_LISTEN = 5005      # Port from dSPACE
+ANY_IP = "0.0.0.0"
+UDP_PORT_LISTEN = 5005
 
-FORWARD_IP = "127.0.0.1"    # Destination IP for Simulink
-FORWARD_PORT = 5006         # Port to Simulink
+FORWARD_IP = "127.0.0.1"
+FORWARD_PORT = 5006
 
 MEM_NAME = "shared_mem"
 
-# --- 1. Set Up Receiver Socket ---
+# --- Thread-Safe Queue ---
+# Holds raw UDP packets ready for processing
+packet_queue = queue.Queue(maxsize=1000)
+stop_event = threading.Event()
+
+# --- Sockets ---
 recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 recv_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 recv_sock.bind((ANY_IP, UDP_PORT_LISTEN))
 
-# REMOVED TIMEOUT: Let socket block naturally on incoming UDP packets for minimum latency.
-recv_sock.settimeout(None) 
-
-# --- 2. Set Up Forwarder Socket ---
 fwd_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 fwd_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-print("=" * 60)
-print(f"Listening on ALL interfaces -> Port: {UDP_PORT_LISTEN} (Blocking mode)")
-print(f"Forwarding Angle info to     -> {FORWARD_IP}:{FORWARD_PORT}")
-print("=" * 60 + "\n")
 
-# --- 3. Initialize Shared Memory ---
-manager = SManager()
-# 32 bytes allocated for 4 x double precision (8 bytes each)
-sm, mem_data = manager.create_mem(mem_name=MEM_NAME, size=32) 
+def udp_receiver_thread():
+    """Producer thread: Continuously receives UDP packets and pushes them to queue."""
+    while not stop_event.is_set():
+        try:
+            recv_sock.settimeout(1.0)
+            packet, addr = recv_sock.recvfrom(1024)
+            # Push packet into queue without blocking the network interface
+            packet_queue.put_nowait(packet)
+        except socket.timeout:
+            continue
+        except queue.Full:
+            # Drop oldest item if processing thread falls far behind
+            try:
+                packet_queue.get_nowait()
+                packet_queue.put_nowait(packet)
+            except queue.Empty:
+                pass
 
 
 def main():
-    print("Relaying data continuously (Press Ctrl+C to stop)...\n")
+    manager = SManager()
+    sm, mem_data = manager.create_mem(mem_name=MEM_NAME, size=32)
+
+    # Start network receiver thread
+    receiver_thread = threading.Thread(target=udp_receiver_thread, daemon=True)
+    receiver_thread.start()
+
+    print(
+        f"Listening on {UDP_PORT_LISTEN} -> Forwarding buffered data to {FORWARD_PORT}\n"
+    )
 
     packet_count = 0
 
     try:
         while True:
-            # Block until a packet arrives from dSPACE
-            packet, addr = recv_sock.recvfrom(1024)
+            try:
+                # Consumer: Fetch packet from buffer queue (blocks up to 1 second)
+                packet = packet_queue.get(timeout=1.0)
+            except queue.Empty:
+                continue
+
             raw_size = len(packet)
-
             angle_val = None
-            torque_val = None
-            phase1_val = None
-            phase2_val = None
 
-            # 16 bytes: 4x Float (32-bit single precision)
+            # Unpack based on size
             if raw_size == 16:
-                angle_val, torque_val, phase1_val, phase2_val = struct.unpack('<4f', packet)
-            # 32 bytes: 4x Double (64-bit double precision)
+                angle_val, torque_val, phase1_val, phase2_val = struct.unpack(
+                    "<4f", packet
+                )
             elif raw_size == 32:
-                angle_val, torque_val, phase1_val, phase2_val = struct.unpack('<4d', packet)
+                angle_val, torque_val, phase1_val, phase2_val = struct.unpack(
+                    "<4d", packet
+                )
             else:
-                print(f"Warning: Ignored packet of unexpected size ({raw_size} bytes) from {addr}")
+                packet_queue.task_done()
                 continue
 
             # Update Shared Memory
@@ -180,29 +203,31 @@ def main():
             mem_data[2] = phase1_val
             mem_data[3] = phase2_val
 
-            # Forward double-precision angle (8 bytes) to Simulink
-            angle_payload = struct.pack('<d', float(angle_val))
+            # Forward Angle to Simulink
+            angle_payload = struct.pack("<d", float(angle_val))
             fwd_sock.sendto(angle_payload, (FORWARD_IP, FORWARD_PORT))
 
+            packet_queue.task_done()
             packet_count += 1
+
             if packet_count % 100 == 0:
-                print(f"[{packet_count:06d}] Relayed Angle: {angle_val:6.2f}° -> Port {FORWARD_PORT}")
+                print(
+                    f"[{packet_count:06d}] Relayed Angle: {angle_val:6.2f}° (Queue Depth: {packet_queue.qsize()})"
+                )
 
     except KeyboardInterrupt:
-        print("\nManual stop triggered by user.")
-
+        print("\nStopping...")
     finally:
-        print("\nCleaning up resources...")
+        stop_event.set()
+        receiver_thread.join(timeout=2.0)
+
         recv_sock.close()
         fwd_sock.close()
-        
-        # Clean up shared memory manager if applicable
-        if hasattr(manager, 'close'):
+
+        if hasattr(manager, "close"):
             manager.close()
-        print("Sockets and Shared Memory closed cleanly.")
+        print("Resources cleaned up cleanly.")
 
 
 if __name__ == "__main__":
     main()
-
-
