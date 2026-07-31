@@ -1,3 +1,56 @@
+while time.time() - start_time < 30:
+    data_received = False
+    angle_to_send = 0.0
+
+    try:
+        packet, addr = recv_sock.recvfrom(1024)
+        raw_size = len(packet)
+
+        if raw_size == 16:
+            angle_val, torque_val, phase1_val, phase2_val = struct.unpack("<4f", packet)
+        elif raw_size == 32:
+            angle_val, torque_val, phase1_val, phase2_val = struct.unpack("<4d", packet)
+        else:
+            print(f"Unexpected packet size: {raw_size}")
+            continue
+
+        # Store in shared memory
+        mem_data[0] = angle_val
+        mem_data[1] = torque_val
+        mem_data[2] = phase1_val
+        mem_data[3] = phase2_val
+
+        angle_to_send = float(angle_val)
+        data_received = True
+
+    except socket.timeout:
+        # No packet received -> use previous value
+        try:
+            with open(FILE_PATH, "r") as f:
+                angle_to_send = float(f.readline().strip())
+        except (FileNotFoundError, ValueError):
+            angle_to_send = 0.0
+
+    # Save latest valid angle
+    try:
+        with open(FILE_PATH, "w") as f:
+            f.write(str(angle_to_send))
+    except OSError:
+        pass
+
+    # Forward to Simulink
+    payload = struct.pack("<d", angle_to_send)
+    fwd_sock.sendto(payload, (FORWARD_IP, FORWARD_PORT))
+
+    packet_count += 1
+    mode = "REAL DATA" if data_received else "FALLBACK"
+
+    print(
+        f"[{packet_count:04d}] [{mode}] "
+        f"Angle = {angle_to_send:7.3f}°"
+    )
+
+
 # import socket
 # import struct
 # import time
