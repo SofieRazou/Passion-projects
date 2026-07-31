@@ -257,132 +257,114 @@
 
 # if __name__ == "__main__":
 #     main()
+# Keep the most recent valid angle
 import socket
 import struct
 import time
 from shared_mem_manager import SManager
 
-# ------------------------------------------------------------------
-# Network Configuration
-# ------------------------------------------------------------------
-ANY_IP = "127.0.0.1"
-UDP_PORT_LISTEN = 5005
+# -------------------------------------------------
+# Configuration
+# -------------------------------------------------
+LISTEN_IP = "127.0.0.1"
+LISTEN_PORT = 5005
 
 FORWARD_IP = "127.0.0.1"
 FORWARD_PORT = 5006
 
 MEM_NAME = "shared_mem"
-FILE_PATH = "angle_logs.txt"
 
-# ------------------------------------------------------------------
-# Receiver Socket
-# ------------------------------------------------------------------
+# -------------------------------------------------
+# Receiver Socket (dSPACE -> Python)
+# -------------------------------------------------
 recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 recv_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-recv_sock.bind((ANY_IP, UDP_PORT_LISTEN))
-recv_sock.settimeout(0.05)      # Wait up to 50 ms for a packet
+recv_sock.bind((LISTEN_IP, LISTEN_PORT))
+recv_sock.settimeout(0.05)      # Wait up to 50 ms
 
-# ------------------------------------------------------------------
-# Forward Socket
-# ------------------------------------------------------------------
-fwd_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-fwd_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+# -------------------------------------------------
+# Forward Socket (Python -> Simulink)
+# -------------------------------------------------
+send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-print("=" * 60)
-print(f"Listening on {ANY_IP}:{UDP_PORT_LISTEN}")
-print(f"Forwarding to {FORWARD_IP}:{FORWARD_PORT}")
-print("=" * 60)
-
-# ------------------------------------------------------------------
+# -------------------------------------------------
 # Shared Memory
-# ------------------------------------------------------------------
+# -------------------------------------------------
 manager = SManager()
 sm, mem_data = manager.create_mem(mem_name=MEM_NAME, size=32)
+
+print("=" * 60)
+print(f"Listening for dSPACE packets on {LISTEN_IP}:{LISTEN_PORT}")
+print(f"Forwarding angle to Simulink on {FORWARD_IP}:{FORWARD_PORT}")
+print("=" * 60)
 
 
 def main():
 
-    print("\nBridge running... Press Ctrl+C to stop.\n")
-
-    start_time = time.time()
     packet_count = 0
-
-    # Keep the most recent valid angle
     last_angle = 0.0
 
     try:
 
-        while time.time() - start_time < 30:
+        while True:
 
             data_received = False
-            angle_to_send = last_angle
+            angle = last_angle
 
             try:
                 packet, addr = recv_sock.recvfrom(1024)
-                raw_size = len(packet)
 
-                if raw_size == 16:
-                    angle_val, torque_val, phase1_val, phase2_val = struct.unpack(
-                        "<4f", packet
-                    )
+                if len(packet) == 16:
+                    angle, torque, phase1, phase2 = struct.unpack("<4f", packet)
 
-                elif raw_size == 32:
-                    angle_val, torque_val, phase1_val, phase2_val = struct.unpack(
-                        "<4d", packet
-                    )
+                elif len(packet) == 32:
+                    angle, torque, phase1, phase2 = struct.unpack("<4d", packet)
 
                 else:
-                    print(f"Warning: Unexpected packet size ({raw_size} bytes)")
+                    print(f"Unexpected packet size: {len(packet)} bytes")
                     continue
 
                 # Update shared memory
-                mem_data[0] = angle_val
-                mem_data[1] = torque_val
-                mem_data[2] = phase1_val
-                mem_data[3] = phase2_val
+                mem_data[0] = angle
+                mem_data[1] = torque
+                mem_data[2] = phase1
+                mem_data[3] = phase2
 
-                angle_to_send = float(angle_val)
-                last_angle = angle_to_send
+                last_angle = float(angle)
+                angle = last_angle
                 data_received = True
 
-                # Optional logging
-                try:
-                    with open(FILE_PATH, "w") as f:
-                        f.write(str(angle_to_send))
-                except OSError:
-                    pass
-
             except socket.timeout:
-                # No packet received -> keep previous angle
-                angle_to_send = last_angle
+                # No new packet -> continue sending last angle
+                angle = last_angle
 
             except struct.error as e:
-                print(f"Packet unpack error: {e}")
+                print(f"Packet error: {e}")
                 continue
 
-            # Forward latest angle to Simulink
+            # Forward ONLY the angle to Simulink
             try:
-                payload = struct.pack("<d", angle_to_send)
-                fwd_sock.sendto(payload, (FORWARD_IP, FORWARD_PORT))
+                send_sock.sendto(
+                    struct.pack("<d", angle),
+                    (FORWARD_IP, FORWARD_PORT),
+                )
             except OSError as e:
                 print(f"Send error: {e}")
 
             packet_count += 1
 
-            mode = "REAL DATA" if data_received else "LAST VALUE"
-
             print(
-                f"[{packet_count:05d}] "
-                f"[{mode}] "
-                f"Angle = {angle_to_send:8.3f}°"
+                f"[{packet_count:06d}] "
+                f"{'REAL' if data_received else 'HOLD'} "
+                f"Angle = {angle:.3f}°"
             )
 
     except KeyboardInterrupt:
-        print("\nStopping...")
+        print("\nStopping bridge...")
 
     finally:
         recv_sock.close()
-        fwd_sock.close()
+        send_sock.close()
         print("Sockets closed.")
 
 
