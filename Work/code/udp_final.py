@@ -88,49 +88,120 @@
 #     main()
 import socket
 import struct
+import time
+import math
+from shared_mem_manager import SManager
 
-# Configuration
-LISTEN_IP = "0.0.0.0"       # Listen on all local interfaces
-LISTEN_PORT = 5005          # Source port (dSPACE)
+# --- Network Configuration ---
+ANY_IP = "127.0.0.1"          # Listen on ALL network interfaces
+UDP_PORT_LISTEN = 5005      # Fetch incoming dSPACE/Simulink info here
 
-FORWARD_IP = "127.0.0.1"    # Destination IP (Simulink on localhost)
-FORWARD_PORT = 5006         # Destination port
+FORWARD_IP = "127.0.0.1"    # Destination port for Simulink
+FORWARD_PORT = 5006       
 
-# 1. Receiver Socket (Port 5005)
+MEM_NAME = "shared_mem"
+
+FILE_PATH = "angle_logs.txt"
+
+# --- 1. Set Up Receiver Socket ---
 recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 recv_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-recv_sock.bind((LISTEN_IP, LISTEN_PORT))
+recv_sock.bind((ANY_IP, UDP_PORT_LISTEN))
 
-# 2. Sender Socket (For forwarding to Port 5006)
+# CRITICAL FIX: Set a 50ms timeout instead of non-blocking mode.
+# This lets Python wait for real incoming packets instead of instantly skipping to fallback!
+recv_sock.settimeout(0.05) 
+
+# --- 2. Set Up Forwarder Socket ---
 fwd_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+fwd_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-print(f"Listening on port {LISTEN_PORT} -> Forwarding angle to {FORWARD_IP}:{FORWARD_PORT}")
+print("=" * 60)
+print(f"Listening on ALL interfaces -> Port: {UDP_PORT_LISTEN} (50ms timeout)")
+print(f"Forwarding Angle info to     -> {FORWARD_IP}:{FORWARD_PORT}")
+print("=" * 60 + "\n")
 
-try:
-    while True:
-        # Step A: Block until a UDP packet arrives from port 5005
-        packet, addr = recv_sock.recvfrom(1024)
-        raw_size = len(packet)
+# --- 3. Initialize Shared Memory ---
+manager = SManager()
+# Allocating 32 bytes to handle up to 4 doubles safely
+sm, mem_data = manager.create_mem(mem_name=MEM_NAME, size=32) 
 
-        angle = None
 
-        # Step B: Extract angle based on incoming packet length
-        if raw_size == 16:  # 4x 32-bit Floats (Little-Endian)
-            angle, torque, phase1, phase2 = struct.unpack('<4f', packet)
-        elif raw_size == 32:  # 4x 64-bit Doubles (Little-Endian)
-            angle, torque, phase1, phase2 = struct.unpack('<4d', packet)
-        else:
-            # If payload length doesn't match expected struct size
-            continue
+def main():
+    print("Shared memory allocated. Relaying data (Press Ctrl+C to stop)...\n")
 
-        # Step C: Pack ONLY the angle as a 64-bit double ('<d') and forward to 5006
-        payload = struct.pack('<d', float(angle))
-        fwd_sock.sendto(payload, (FORWARD_IP, FORWARD_PORT))
+    start_time = time.time()
+    packet_count = 0
+    t = 0.0
 
-        print(f"Forwarded Angle: {angle:.2f}° to port {FORWARD_PORT}")
+    try:
+        # Run loop for 30 seconds
+        while time.time() - start_time < 30:
+            angle_to_send = 0.0
+            data_received = False
 
-except KeyboardInterrupt:
-    print("\nRelay stopped.")
-finally:
-    recv_sock.close()
-    fwd_sock.close()
+            # --- Step A: Wait up to 50ms for real packet from port 5005 ---
+            try:
+                packet, addr = recv_sock.recvfrom(1024)
+                raw_size = len(packet)
+
+                angle_val = None
+                torque_val = None
+                phase1_val = None
+                phase2_val = None
+
+                # Support 16-byte payload (4 floats)
+                if raw_size == 16:
+                    angle_val, torque_val, phase1_val, phase2_val = struct.unpack('<4f', packet)
+                # Support 32-byte payload (4 doubles)
+                elif raw_size == 32:
+                    angle_val, torque_val, phase1_val, phase2_val = struct.unpack('<4d', packet)
+                else:
+                    print(f"Warning: Unexpected packet size ({raw_size} bytes) from {addr}")
+
+                if angle_val is not None:
+                    # Write to Shared Memory
+                    with open(FILE_PATH, "w") as f:
+                        f.write(str(angle_val))
+                    mem_data[0] = angle_val
+                    mem_data[1] = torque_val
+                    mem_data[2] = phase1_val
+                    mem_data[3] = phase2_val
+
+                    angle_to_send = float(angle_val)
+                    data_received = True
+
+            except socket.timeout:
+                # Triggered ONLY when no packet arrives within 50ms
+                data_received = False
+
+            # --- Step B: Fallback test signal ONLY if port 5005 timed out ---
+            if not data_received:
+                # angle_to_send = 45.0 * math.sin(t)  # Generates test sine wave [-45°, +45°]
+                # t += 0.05
+                # time.sleep(0.05)  # Pace fallback rate to ~20Hz
+                with open(FILE_PATH, "r") as fread:
+                    angle_data = fread.readline().strip()
+                    angle_send  = float(angle_data)
+    
+            # --- Step C: Forward angle to Simulink on port 5006 ---
+            angle_payload = struct.pack('<d', angle_send)
+            fwd_sock.sendto(angle_payload, (FORWARD_IP, FORWARD_PORT))
+
+            packet_count += 1
+            mode_tag = "REAL DATA (5005)" if data_received else "FALLBACK SINE"
+
+            print(f"[{packet_count:04d}] [{mode_tag}] Sent Angle: {angle_to_send:6.2f}° --> Port {FORWARD_PORT}")
+
+    except KeyboardInterrupt:
+        print("\nManual stop triggered by user.")
+
+    finally:
+        print("\nCleaning up resources...")
+        recv_sock.close()
+        fwd_sock.close()
+        print("Sockets closed cleanly.")
+
+
+if __name__ == "__main__":
+    main()
