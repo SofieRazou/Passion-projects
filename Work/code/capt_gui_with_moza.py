@@ -8,7 +8,7 @@ from collections import deque
 from typing import Optional
 
 import pyqtgraph as pg
-
+import pygame
 from PyQt6.QtCore import QPointF, Qt, QTimer
 from PyQt6.QtGui import QColor, QPainter, QPen, QPolygonF
 from PyQt6.QtWidgets import (
@@ -19,15 +19,13 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMainWindow,
     QPushButton,
-    QSlider,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
-import pygame 
 # ---------------------------------------------------------------------------
-# UDP configuration
+# UDP Configuration
 # ---------------------------------------------------------------------------
 
 UDP_IP = "127.0.0.1"
@@ -36,62 +34,56 @@ UDP_PORT = 50000
 ANGLE_FORWARD_IP = "127.0.0.1"
 ANGLE_FORWARD_PORT = 5006
 
-
 CONTROL_IP = "134.105.60.99"
 CONTROL_PORT = 55001
+
+# Signal names sent by dSPACE
+ANGLE_SIGNAL_NAME = "Out1"
+TORQUE_SIGNAL_NAME = "Torque"
+CURRENT_PHASE_1_NAME = "AO_ch8"
+CURRENT_PHASE_2_NAME = "AO_ch16"
+
+PLOT_WINDOW_SECONDS = 10.0
+GUI_UPDATE_PERIOD_MS = 20  # 50 Hz refresh rate
+
+# ---------------------------------------------------------------------------
+# Hardware & Network Initialization
+# ---------------------------------------------------------------------------
 
 moza_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 pygame.init()
 pygame.joystick.init()
 
-
 if pygame.joystick.get_count() == 0:
-    print("Moza R5 is not detected. Please try again")
-    exit()
+    print("Moza R5 is not detected. Please connect the device and try again.")
+    sys.exit()
 
 wheel = pygame.joystick.Joystick(0)
 wheel.init()
 
 print(f"Connected successfully to: {wheel.get_name()}")
-print(f"Streaming real-time steering angle data over address: {CONTROL_IP} from port: {CONTROL_PORT}")
+print(
+    f"Streaming steering angle to: {CONTROL_IP}:{CONTROL_PORT}"
+)
 
-# Change this to the exact angle variable name sent by dSPACE.
-ANGLE_SIGNAL_NAME = "Out1"
 
-TORQUE_SIGNAL_NAME = "Torque"
-CURRENT_PHASE_1_NAME = "AO_ch8"
-CURRENT_PHASE_2_NAME = "AO_ch16"
-
-PLOT_WINDOW_SECONDS = 10.0
-GUI_UPDATE_PERIOD_MS = 20
+# ---------------------------------------------------------------------------
+# Socket Communication Classes
+# ---------------------------------------------------------------------------
 
 
 class UdpReceiver:
     """Non-blocking UDP receiver for dSPACE JSON packets."""
 
     def __init__(self, ip: str, port: int):
-        self.socket = socket.socket(
-            socket.AF_INET,
-            socket.SOCK_DGRAM,
-        )
-
-        self.socket.setsockopt(
-            socket.SOL_SOCKET,
-            socket.SO_REUSEADDR,
-            1,
-        )
-
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.socket.bind((ip, port))
         self.socket.setblocking(False)
 
     def read_latest_packet(self) -> Optional[dict]:
-        """
-        Read every currently waiting packet and return only the latest one.
-
-        Discarding older queued packets prevents the GUI from slowly falling
-        behind when packets arrive faster than the plots are refreshed.
-        """
+        """Reads all queued packets and returns only the latest frame."""
         latest_packet = None
 
         while True:
@@ -106,58 +98,55 @@ class UdpReceiver:
             try:
                 decoded_data = raw_data.decode("utf-8")
                 packet = json.loads(decoded_data)
-
                 if isinstance(packet, dict):
                     latest_packet = packet
-
             except (UnicodeDecodeError, json.JSONDecodeError) as error:
                 print(f"Invalid UDP packet: {error}")
 
         return latest_packet
-   
 
     def close(self) -> None:
         self.socket.close()
+
 
 class UdpSender:
-    """UDP sender for forwarding signals."""
+    """UDP sender for forwarding signals (Supports both raw bytes & JSON)."""
 
-    def __init__(self, ip: str, port: int):
+    def __init__(self, ip: str, port: int, send_as_binary: bool = True):
         self.ip = ip
         self.port = port
-
-        self.socket = socket.socket(
-            socket.AF_INET,
-            socket.SOCK_DGRAM,
-        )
+        self.send_as_binary = send_as_binary
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     def send_angle(self, angle: float) -> None:
-        packet = {
-            "angle": angle
-        }
+        if self.send_as_binary:
+            # Send as 64-bit Little-Endian double (Ideal for Simulink/C)
+            data = struct.pack("<d", float(angle))
+        else:
+            # Send as JSON string payload
+            packet = {"angle": angle}
+            data = json.dumps(packet).encode("utf-8")
 
-        data = json.dumps(packet).encode("utf-8")
-
-        self.socket.sendto(
-            data,
-            (self.ip, self.port),
-        )
+        self.socket.sendto(data, (self.ip, self.port))
 
     def close(self) -> None:
         self.socket.close()
+
+
+# ---------------------------------------------------------------------------
+# UI Widgets & Visualization Pages
+# ---------------------------------------------------------------------------
 
 
 class SpringWidget(QWidget):
-    """Draws a horizontal spring connected to a movable handle."""
+    """Draws a horizontal dynamic spring connected to a movable handle."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-
         self.angle_rad = 0.0
         self.measured_torque = 0.0
         self.reference_angle_rad = 0.0
         self.kappa = 1.0
-
         self.setMinimumHeight(300)
 
     def set_angle(self, angle_rad: float) -> None:
@@ -177,20 +166,15 @@ class SpringWidget(QWidget):
         self.update()
 
     def spring_torque(self) -> float:
-        """Torque calculated from the virtual spring model."""
-        return -self.kappa * (
-            self.angle_rad - self.reference_angle_rad
-        )
+        return -self.kappa * (self.angle_rad - self.reference_angle_rad)
 
     def paintEvent(self, event) -> None:
         del event
-
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         width = self.width()
         height = self.height()
-
         center_y = height * 0.52
         fixed_x = width * 0.12
 
@@ -198,30 +182,29 @@ class SpringWidget(QWidget):
         maximum_angle = math.radians(30)
 
         normalized_angle = max(
-            -1.0,
-            min(1.0, self.angle_rad / maximum_angle),
+            -1.0, min(1.0, self.angle_rad / maximum_angle)
         )
-
         equilibrium_x = width * 0.52
         handle_x = equilibrium_x + (
             normalized_angle * max_visual_displacement
         )
 
-        axis_pen = QPen(QColor(140, 140, 140), 1)
-        axis_pen.setStyle(Qt.PenStyle.DashLine)
+        # Axis Line
+        axis_pen = QPen(QColor(140, 140, 140), 1, Qt.PenStyle.DashLine)
         painter.setPen(axis_pen)
         painter.drawLine(
             QPointF(equilibrium_x, center_y - 80),
             QPointF(equilibrium_x, center_y + 80),
         )
 
+        # Wall Anchor
         wall_pen = QPen(QColor(70, 70, 70), 5)
         painter.setPen(wall_pen)
         painter.drawLine(
-            QPointF(fixed_x, center_y - 75),
-            QPointF(fixed_x, center_y + 75),
+            QPointF(fixed_x, center_y - 75), QPointF(fixed_x, center_y + 75)
         )
 
+        # Draw Spring Polyline
         self._draw_spring(
             painter=painter,
             start=QPointF(fixed_x, center_y),
@@ -230,48 +213,31 @@ class SpringWidget(QWidget):
             amplitude=22,
         )
 
+        # Movable Handle Bar
         handle_pen = QPen(QColor(30, 90, 180), 8)
         painter.setPen(handle_pen)
         painter.drawLine(
-            QPointF(handle_x, center_y - 60),
-            QPointF(handle_x, center_y + 60),
+            QPointF(handle_x, center_y - 60), QPointF(handle_x, center_y + 60)
         )
 
+        # Torque Arrow Indicator
         self._draw_torque_arrow(
-            painter,
-            QPointF(handle_x, center_y - 95),
-            self.measured_torque,
+            painter, QPointF(handle_x, center_y - 95), self.measured_torque
         )
 
+        # Text Overlay
         painter.setPen(QColor(40, 40, 40))
-
         angle_deg = math.degrees(self.angle_rad)
         reference_deg = math.degrees(self.reference_angle_rad)
 
+        painter.drawText(20, 30, f"Measured angle: {angle_deg:.2f}°")
+        painter.drawText(20, 55, f"Reference: {reference_deg:.2f}°")
+        painter.drawText(20, 80, f"Kappa: {self.kappa:.3f} Nm/rad")
         painter.drawText(
-            20,
-            30,
-            f"Measured angle: {angle_deg:.2f}°",
+            20, 105, f"Measured torque: {self.measured_torque:.3f} Nm"
         )
         painter.drawText(
-            20,
-            55,
-            f"Reference: {reference_deg:.2f}°",
-        )
-        painter.drawText(
-            20,
-            80,
-            f"Kappa: {self.kappa:.3f} Nm/rad",
-        )
-        painter.drawText(
-            20,
-            105,
-            f"Measured torque: {self.measured_torque:.3f} Nm",
-        )
-        painter.drawText(
-            20,
-            130,
-            f"Calculated spring torque: {self.spring_torque():.3f} Nm",
+            20, 130, f"Calculated spring torque: {self.spring_torque():.3f} Nm"
         )
 
     @staticmethod
@@ -294,7 +260,6 @@ class SpringWidget(QWidget):
             return
 
         points = [start, QPointF(usable_start_x, start.y())]
-
         number_of_segments = coils * 2
         spring_length = usable_end_x - usable_start_x
 
@@ -302,7 +267,7 @@ class SpringWidget(QWidget):
             ratio = index / number_of_segments
             x = usable_start_x + ratio * spring_length
 
-            if index == 0 or index == number_of_segments:
+            if index in (0, number_of_segments):
                 y = start.y()
             else:
                 y = (
@@ -313,26 +278,19 @@ class SpringWidget(QWidget):
 
             points.append(QPointF(x, y))
 
-        points.extend(
-            [
-                QPointF(usable_end_x, end.y()),
-                end,
-            ]
-        )
-
+        points.extend([QPointF(usable_end_x, end.y()), end])
         painter.drawPolyline(QPolygonF(points))
 
     @staticmethod
     def _draw_torque_arrow(
-        painter: QPainter,
-        origin: QPointF,
-        torque: float,
+        painter: QPainter, origin: QPointF, torque: float
     ) -> None:
         if abs(torque) < 1e-6:
             return
 
         arrow_length = 65
         direction = 1 if torque > 0 else -1
+        head_size = 10
 
         arrow_pen = QPen(QColor(190, 70, 50), 3)
         painter.setPen(arrow_pen)
@@ -343,22 +301,16 @@ class SpringWidget(QWidget):
         )
 
         painter.drawLine(origin, end)
-
-        head_size = 10
-
         painter.drawLine(
             end,
             QPointF(
-                end.x() - direction * head_size,
-                end.y() - head_size,
+                end.x() - direction * head_size, end.y() - head_size
             ),
         )
-
         painter.drawLine(
             end,
             QPointF(
-                end.x() - direction * head_size,
-                end.y() + head_size,
+                end.x() - direction * head_size, end.y() + head_size
             ),
         )
 
@@ -366,7 +318,6 @@ class SpringWidget(QWidget):
 class SpringPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-
         self.spring_view = SpringWidget()
 
         self.angle_label = QLabel("Measured angle: 0.000°")
@@ -393,47 +344,31 @@ class SpringPage(QWidget):
         layout.addWidget(self.spring_view, 1)
         layout.addLayout(control_layout)
 
-        self.kappa_input.valueChanged.connect(
-            self.spring_view.set_kappa
-        )
-
+        self.kappa_input.valueChanged.connect(self.spring_view.set_kappa)
         reset_button.clicked.connect(self._set_current_as_reference)
 
-    def update_measurements(
-        self,
-        angle_rad: float,
-        torque: float,
-    ) -> None:
+    def update_measurements(self, angle_rad: float, torque: float) -> None:
         self.spring_view.set_angle(angle_rad)
         self.spring_view.set_measured_torque(torque)
-
         self.angle_label.setText(
             f"Measured angle: {math.degrees(angle_rad):.3f}°"
         )
-
-        self.torque_label.setText(
-            f"Measured torque: {torque:.3f} Nm"
-        )
+        self.torque_label.setText(f"Measured torque: {torque:.3f} Nm")
 
     def _set_current_as_reference(self) -> None:
-        self.spring_view.set_reference_angle(
-            self.spring_view.angle_rad
-        )
+        self.spring_view.set_reference_angle(self.spring_view.angle_rad)
 
 
 class SignalPlotPage(QWidget):
-    """First-page plots for commanded currents and measured torque."""
+    """Real-time plotting page for current, torque, and steering angle."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-
         self.start_time = time.monotonic()
 
-        maximum_points = int(
-            PLOT_WINDOW_SECONDS
-            * 1000
-            / GUI_UPDATE_PERIOD_MS
-        ) + 100
+        maximum_points = (
+            int(PLOT_WINDOW_SECONDS * 1000 / GUI_UPDATE_PERIOD_MS) + 100
+        )
 
         self.time_values = deque(maxlen=maximum_points)
         self.torque_values = deque(maxlen=maximum_points)
@@ -442,15 +377,9 @@ class SignalPlotPage(QWidget):
         self.angle_values = deque(maxlen=maximum_points)
 
         self.torque_value_label = QLabel("Torque: --")
-        self.current_1_value_label = QLabel(
-            f"{CURRENT_PHASE_1_NAME}: --"
-        )
-        self.current_2_value_label = QLabel(
-            f"{CURRENT_PHASE_2_NAME}: --"
-        )
-        self.angle_value_label = QLabel(
-                    "Angle: --"
-                )
+        self.current_1_value_label = QLabel(f"{CURRENT_PHASE_1_NAME}: --")
+        self.current_2_value_label = QLabel(f"{CURRENT_PHASE_2_NAME}: --")
+        self.angle_value_label = QLabel("Angle: --")
 
         value_layout = QHBoxLayout()
         value_layout.addWidget(self.torque_value_label)
@@ -460,46 +389,30 @@ class SignalPlotPage(QWidget):
         value_layout.addStretch()
 
         self.current_plot = self._create_plot(
-            title="Commanded currents",
-            y_label="Current",
-            units="A",
+            "Commanded currents", "Current", "A"
         )
-
-        self.torque_plot = self._create_plot(
-            title="Measured torque",
-            y_label="Torque",
-            units="Nm",
-        )
+        self.torque_plot = self._create_plot("Measured torque", "Torque", "Nm")
         self.angle_plot = self._create_plot(
-                    title="Measured steering angle",
-                    y_label="Angle",
-                    units="degrees",
-                )
-        
+            "Measured steering angle", "Angle", "rad"
+        )
+
         self.current_1_curve = self.current_plot.plot(
-            pen=pg.mkPen(width=2),
-            name=CURRENT_PHASE_1_NAME,
+            pen=pg.mkPen(width=2), name=CURRENT_PHASE_1_NAME
         )
-
         self.current_2_curve = self.current_plot.plot(
-            pen=pg.mkPen(
-                color = (0,0,255),width=2
-            ),
-            name=CURRENT_PHASE_2_NAME,
+            pen=pg.mkPen(color=(0, 0, 255), width=2), name=CURRENT_PHASE_2_NAME
         )
-
         self.torque_curve = self.torque_plot.plot(
-            pen=pg.mkPen(color = (255,0,255),width=2),
-            name=TORQUE_SIGNAL_NAME,
+            pen=pg.mkPen(color=(255, 0, 255), width=2), name=TORQUE_SIGNAL_NAME
         )
         self.angle_curve = self.angle_plot.plot(
-                    pen=pg.mkPen(color = (64,224,208),width=2),
-                    name=ANGLE_SIGNAL_NAME,
-                )
+            pen=pg.mkPen(color=(64, 224, 208), width=2), name=ANGLE_SIGNAL_NAME
+        )
 
         self.current_plot.addLegend()
         self.torque_plot.addLegend()
         self.angle_plot.addLegend()
+
         clear_button = QPushButton("Clear plots")
         clear_button.clicked.connect(self.clear)
 
@@ -511,36 +424,19 @@ class SignalPlotPage(QWidget):
         plot_layout.addWidget(self.current_plot, 0, 0)
         plot_layout.addWidget(self.torque_plot, 1, 0)
         plot_layout.addWidget(self.angle_plot, 0, 1)
+
         layout = QVBoxLayout(self)
         layout.addLayout(top_layout)
         layout.addLayout(plot_layout, 1)
 
     @staticmethod
     def _create_plot(
-        title: str,
-        y_label: str,
-        units: str,
+        title: str, y_label: str, units: str
     ) -> pg.PlotWidget:
         plot = pg.PlotWidget(title=title)
-
-        plot.setLabel(
-            "bottom",
-            "Time",
-            units="s",
-        )
-
-        plot.setLabel(
-            "left",
-            y_label,
-            units=units,
-        )
-
-        plot.showGrid(
-            x=True,
-            y=True,
-            alpha=0.25,
-        )
-
+        plot.setLabel("bottom", "Time", units="s")
+        plot.setLabel("left", y_label, units=units)
+        plot.showGrid(x=True, y=True, alpha=0.25)
         return plot
 
     def add_sample(
@@ -550,7 +446,6 @@ class SignalPlotPage(QWidget):
         current_1: float,
         current_2: float,
     ) -> None:
-
         current_time = time.monotonic() - self.start_time
 
         self.time_values.append(current_time)
@@ -559,22 +454,14 @@ class SignalPlotPage(QWidget):
         self.current_2_values.append(current_2)
         self.angle_values.append(angle_rad)
 
-        self.torque_value_label.setText(
-            f"Torque: {torque:.3f} Nm"
-        )
-
+        self.torque_value_label.setText(f"Torque: {torque:.3f} Nm")
         self.current_1_value_label.setText(
             f"{CURRENT_PHASE_1_NAME}: {current_1:.3f} A"
         )
-
         self.current_2_value_label.setText(
             f"{CURRENT_PHASE_2_NAME}: {current_2:.3f} A"
         )
-
-        self.angle_value_label.setText(
-                    f"Angle: {angle_rad:.3f} degrees"
-                )
-        
+        self.angle_value_label.setText(f"Angle: {angle_rad:.3f} rad")
 
         self._update_curves()
 
@@ -583,29 +470,12 @@ class SignalPlotPage(QWidget):
             return
 
         times = list(self.time_values)
-
-        self.current_1_curve.setData(
-            times,
-            list(self.current_1_values),
-        )
-
-        self.current_2_curve.setData(
-            times,
-            list(self.current_2_values),
-        )
-
-        self.torque_curve.setData(
-            times,
-            list(self.torque_values),
-        )
-
-        self.angle_curve.setData(
-                    times,
-                    list(self.angle_values),
-                )
+        self.current_1_curve.setData(times, list(self.current_1_values))
+        self.current_2_curve.setData(times, list(self.current_2_values))
+        self.torque_curve.setData(times, list(self.torque_values))
+        self.angle_curve.setData(times, list(self.angle_values))
 
         latest_time = times[-1]
-
         if latest_time > PLOT_WINDOW_SECONDS:
             minimum_time = latest_time - PLOT_WINDOW_SECONDS
             maximum_time = latest_time
@@ -613,27 +483,12 @@ class SignalPlotPage(QWidget):
             minimum_time = 0.0
             maximum_time = PLOT_WINDOW_SECONDS
 
-        self.current_plot.setXRange(
-            minimum_time,
-            maximum_time,
-            padding=0,
-        )
-
-        self.torque_plot.setXRange(
-            minimum_time,
-            maximum_time,
-            padding=0,
-        )
-
-        self.angle_plot.setXRange(
-                    minimum_time,
-                    maximum_time,
-                    padding=0,
-                )
+        self.current_plot.setXRange(minimum_time, maximum_time, padding=0)
+        self.torque_plot.setXRange(minimum_time, maximum_time, padding=0)
+        self.angle_plot.setXRange(minimum_time, maximum_time, padding=0)
 
     def clear(self) -> None:
         self.start_time = time.monotonic()
-
         self.time_values.clear()
         self.torque_values.clear()
         self.current_1_values.clear()
@@ -649,23 +504,18 @@ class SignalPlotPage(QWidget):
 class HomePage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-
         title = QLabel("CAPT Motor Dashboard")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         instructions = QLabel(
             "Waiting for UDP data from dSPACE...\n\n"
-            f"UDP address: {UDP_IP}:{UDP_PORT}\n"
-            f"Angle signal: {ANGLE_SIGNAL_NAME}\n"
-            f"Torque signal: {TORQUE_SIGNAL_NAME}\n"
-            f"Angle signal: {ANGLE_SIGNAL_NAME}\n"
-            f"Current signals: {CURRENT_PHASE_1_NAME}, "
-            f"{CURRENT_PHASE_2_NAME}"
+            f"UDP Address: {UDP_IP}:{UDP_PORT}\n"
+            f"Forward Address: {ANGLE_FORWARD_IP}:{ANGLE_FORWARD_PORT}\n"
+            f"Angle Signal: {ANGLE_SIGNAL_NAME}\n"
+            f"Torque Signal: {TORQUE_SIGNAL_NAME}\n"
+            f"Current Signals: {CURRENT_PHASE_1_NAME}, {CURRENT_PHASE_2_NAME}"
         )
-
-        instructions.setAlignment(
-            Qt.AlignmentFlag.AlignCenter
-        )
+        instructions.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         layout = QVBoxLayout(self)
         layout.addStretch()
@@ -674,27 +524,26 @@ class HomePage(QWidget):
         layout.addStretch()
 
 
+# ---------------------------------------------------------------------------
+# Main Application Window
+# ---------------------------------------------------------------------------
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-
         self.setWindowTitle("CAPT Motor Dashboard")
         self.resize(1100, 800)
 
-        self.udp_receiver = UdpReceiver(
-            UDP_IP,
-            UDP_PORT,
-        )
+        self.udp_receiver = UdpReceiver(UDP_IP, UDP_PORT)
         self.angle_sender = UdpSender(
-            ANGLE_FORWARD_IP,
-            ANGLE_FORWARD_PORT,
+            ANGLE_FORWARD_IP, ANGLE_FORWARD_PORT, send_as_binary=True
         )
 
         self.latest_angle_rad = 0.0
         self.latest_torque = 0.0
         self.latest_current_1 = 0.0
         self.latest_current_2 = 0.0
-        self.latest_angle_rad = 0.0
 
         self.packet_count = 0
         self.last_packet_time = None
@@ -710,22 +559,32 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(tabs)
 
-        self.status_label = QLabel(
-            f"Listening on UDP {UDP_IP}:{UDP_PORT}"
-        )
+        self.status_label = QLabel(f"Listening on UDP {UDP_IP}:{UDP_PORT}")
+        self.statusBar().addPermanentWidget(self.status_label)
 
-        self.statusBar().addPermanentWidget(
-            self.status_label
-        )
-
+        # Timer for receiving incoming dSPACE data
         self.receive_timer = QTimer(self)
-        self.receive_timer.timeout.connect(
-            self._receive_udp_data
-        )
+        self.receive_timer.timeout.connect(self._receive_udp_data)
+        self.receive_timer.start(GUI_UPDATE_PERIOD_MS)
 
-        self.receive_timer.start(
-            GUI_UPDATE_PERIOD_MS
-        )
+        # Timer for non-blocking Moza R5 hardware polling
+        self.moza_timer = QTimer(self)
+        self.moza_timer.timeout.connect(self.poll_moza_wheel)
+        self.moza_timer.start(20)  # Poll at 50 Hz
+
+    def poll_moza_wheel(self) -> None:
+        """Asynchronously poll the Moza steering wheel (Non-blocking)."""
+        max_wheel_degs = 900.0
+        try:
+            pygame.event.pump()
+            raw_axis = wheel.get_axis(0)
+            angle_degrees = raw_axis * (max_wheel_degs / 2.0)
+
+            # Send raw Little-Endian double to control target
+            payload = struct.pack("<d", float(angle_degrees))
+            moza_sock.sendto(payload, (CONTROL_IP, CONTROL_PORT))
+        except Exception as error:
+            print(f"Moza polling error: {error}")
 
     def _receive_udp_data(self) -> None:
         packet = self.udp_receiver.read_latest_packet()
@@ -734,47 +593,21 @@ class MainWindow(QMainWindow):
             self._update_connection_status()
             return
 
-        angle_value = self._read_number(
-            packet,
-            ANGLE_SIGNAL_NAME,
-        )
-
-        torque_value = self._read_number(
-            packet,
-            TORQUE_SIGNAL_NAME,
-        )
-
-        current_1_value = self._read_number(
-            packet,
-            CURRENT_PHASE_1_NAME,
-        )
-
-        current_2_value = self._read_number(
-            packet,
-            CURRENT_PHASE_2_NAME,
-        )
-        angle_value = self._read_number(
-                    packet,
-                   ANGLE_SIGNAL_NAME,
-                )
+        # Single-pass signal extraction
+        angle_value = self._read_number(packet, ANGLE_SIGNAL_NAME)
+        torque_value = self._read_number(packet, TORQUE_SIGNAL_NAME)
+        current_1_value = self._read_number(packet, CURRENT_PHASE_1_NAME)
+        current_2_value = self._read_number(packet, CURRENT_PHASE_2_NAME)
 
         if angle_value is not None:
-            # Assumes dSPACE sends angle in radians.
             self.latest_angle_rad = angle_value
-            self.angle_sender.send_angle(
-                self.latest_angle_rad
-            )
-
-        if angle_value is not None:
-                    # Assumes dSPACE sends angle in radians.
-                    self.latest_angle_rad = angle_value
+            # Forward the decoded angle to port 5006
+            self.angle_sender.send_angle(self.latest_angle_rad)
 
         if torque_value is not None:
             self.latest_torque = torque_value
-
         if current_1_value is not None:
             self.latest_current_1 = current_1_value
-
         if current_2_value is not None:
             self.latest_current_2 = current_2_value
 
@@ -796,12 +629,8 @@ class MainWindow(QMainWindow):
         self._update_connection_status()
 
     @staticmethod
-    def _read_number(
-        packet: dict,
-        signal_name: str,
-    ) -> Optional[float] :
+    def _read_number(packet: dict, signal_name: str) -> Optional[float]:
         value = packet.get(signal_name)
-
         if value is None:
             return None
 
@@ -818,8 +647,7 @@ class MainWindow(QMainWindow):
     def _update_connection_status(self) -> None:
         if self.last_packet_time is None:
             self.status_label.setText(
-                f"Waiting for dSPACE on "
-                f"{UDP_IP}:{UDP_PORT}"
+                f"Waiting for dSPACE on {UDP_IP}:{UDP_PORT}"
             )
             return
 
@@ -833,34 +661,12 @@ class MainWindow(QMainWindow):
             status = "Connection inactive"
 
         self.status_label.setText(
-            f"{status} | Packets: {self.packet_count}"
+            f"{status} | Packets: {self.packet_count} | Fwd: Port {ANGLE_FORWARD_PORT}"
         )
-
-    def read_latest_moza(self) -> Optional[dict]:
-            max_wheel_degs = 900.0
-            clock = pygame.time.Clock()
-            try:
-                while True:
-                    pygame.event.pump()
-                    raw_axis = wheel.get_axis(0)
-    
-                    angle_degrees = raw_axis*(max_wheel_degs/2.0)
-    
-                    payload = struct.pack('<d', float(angle_degrees))
-                    moza_sock.sendto(payload, (CONTROL_IP, CONTROL_PORT))
-    
-                    print(f"\rWheel Axis: {raw_axis:6.3f} | Angle: {angle_degrees:6.2f}", end = "")
-                    clock.tick_busy_loop(100) #update frequency for verbosin 
-    
-            except KeyboardInterrupt:
-                print("\n Stream got interrupted by the user")
-                moza_sock.close()
-    
-            finally:
-                pygame.quit()
 
     def closeEvent(self, event) -> None:
         self.receive_timer.stop()
+        self.moza_timer.stop()
         self.udp_receiver.close()
         self.angle_sender.close()
         moza_sock.close()
@@ -868,13 +674,15 @@ class MainWindow(QMainWindow):
         event.accept()
 
 
+# ---------------------------------------------------------------------------
+# Entry Point
+# ---------------------------------------------------------------------------
+
+
 def main() -> None:
     app = QApplication(sys.argv)
-
     window = MainWindow()
     window.show()
-    window.read_latest_moza()
-
     sys.exit(app.exec())
 
 
