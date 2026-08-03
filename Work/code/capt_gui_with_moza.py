@@ -1,6 +1,7 @@
 import json
 import math
 import socket
+import struct
 import sys
 import time
 from collections import deque
@@ -23,10 +24,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-#for real-time data fetching from Moza R5 steering wheel
+
 import pygame 
-
-
 # ---------------------------------------------------------------------------
 # UDP configuration
 # ---------------------------------------------------------------------------
@@ -34,11 +33,29 @@ import pygame
 UDP_IP = "127.0.0.1"
 UDP_PORT = 50000
 
+ANGLE_FORWARD_IP = "127.0.0.1"
+ANGLE_FORWARD_PORT = 5006
+
+
 CONTROL_IP = "134.105.60.99"
 CONTROL_PORT = 55001
 
-
 moza_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+pygame.init()
+pygame.joystick.init()
+
+
+if pygame.joystick.get_count() == 0:
+    print("Moza R5 is not detected. Please try again")
+    exit()
+
+wheel = pygame.joystick.Joystick(0)
+wheel.init()
+
+print(f"Connected successfully to: {wheel.get_name()}")
+print(f"Streaming real-time steering angle data over address: {CONTROL_IP} from port: {CONTROL_PORT}")
+
 # Change this to the exact angle variable name sent by dSPACE.
 ANGLE_SIGNAL_NAME = "Out1"
 
@@ -67,11 +84,6 @@ class UdpReceiver:
 
         self.socket.bind((ip, port))
         self.socket.setblocking(False)
-        self.wheel = wheel
-
-        self.moza_timer = QTimer(self)
-        self.moza_timer.timeout.connect(self.read_moza)
-        self.moza_timer.start(10)
 
     def read_latest_packet(self) -> Optional[dict]:
         """
@@ -102,20 +114,34 @@ class UdpReceiver:
                 print(f"Invalid UDP packet: {error}")
 
         return latest_packet
+   
 
-    def read_moza(self):
-        pygame.event.pump()
+    def close(self) -> None:
+        self.socket.close()
 
-        raw_axis = self.wheel.get_axis(0)
+class UdpSender:
+    """UDP sender for forwarding signals."""
 
-        angle_degrees = raw_axis * 450
+    def __init__(self, ip: str, port: int):
+        self.ip = ip
+        self.port = port
 
-        payload = struct.pack("<d", float(angle_degrees))
+        self.socket = socket.socket(
+            socket.AF_INET,
+            socket.SOCK_DGRAM,
+        )
 
-        moza_sock.sendto(
-            payload,
-            (CONTROL_IP, CONTROL_PORT)
-    )
+    def send_angle(self, angle: float) -> None:
+        packet = {
+            "angle": angle
+        }
+
+        data = json.dumps(packet).encode("utf-8")
+
+        self.socket.sendto(
+            data,
+            (self.ip, self.port),
+        )
 
     def close(self) -> None:
         self.socket.close()
@@ -449,12 +475,6 @@ class SignalPlotPage(QWidget):
                     y_label="Angle",
                     units="degrees",
                 )
-        #Moza R5 plot
-        self.moza_plot = self._create_plot(
-            title="Moza R5 steering wheel angle",
-            y_label="Steering angle",
-            units="degrees",
-        )
         
         self.current_1_curve = self.current_plot.plot(
             pen=pg.mkPen(width=2),
@@ -476,11 +496,6 @@ class SignalPlotPage(QWidget):
                     pen=pg.mkPen(color = (64,224,208),width=2),
                     name=ANGLE_SIGNAL_NAME,
                 )
-        
-        self.moza_angle_curve = self.moza_plot.plot(
-            pen=pg.mkPen(width=2),
-            name="Moza angle",
-        )
 
         self.current_plot.addLegend()
         self.torque_plot.addLegend()
@@ -496,7 +511,6 @@ class SignalPlotPage(QWidget):
         plot_layout.addWidget(self.current_plot, 0, 0)
         plot_layout.addWidget(self.torque_plot, 1, 0)
         plot_layout.addWidget(self.angle_plot, 0, 1)
-        plot_layout.addWidget(self.moza_plot, 1, 1)
         layout = QVBoxLayout(self)
         layout.addLayout(top_layout)
         layout.addLayout(plot_layout, 1)
@@ -535,7 +549,6 @@ class SignalPlotPage(QWidget):
         torque: float,
         current_1: float,
         current_2: float,
-        moza_angle_deg: float,
     ) -> None:
 
         current_time = time.monotonic() - self.start_time
@@ -545,7 +558,6 @@ class SignalPlotPage(QWidget):
         self.current_1_values.append(current_1)
         self.current_2_values.append(current_2)
         self.angle_values.append(angle_rad)
-        self.moza_angle_values.append(moza_angle_deg)
 
         self.torque_value_label.setText(
             f"Torque: {torque:.3f} Nm"
@@ -592,11 +604,6 @@ class SignalPlotPage(QWidget):
                     list(self.angle_values),
                 )
 
-        self.moza_angle_curve.setData(
-            times,
-            list(self.moza_angle_values),
-        )
-        
         latest_time = times[-1]
 
         if latest_time > PLOT_WINDOW_SECONDS:
@@ -678,6 +685,10 @@ class MainWindow(QMainWindow):
             UDP_IP,
             UDP_PORT,
         )
+        self.angle_sender = UdpSender(
+            ANGLE_FORWARD_IP,
+            ANGLE_FORWARD_PORT,
+        )
 
         self.latest_angle_rad = 0.0
         self.latest_torque = 0.0
@@ -750,6 +761,13 @@ class MainWindow(QMainWindow):
         if angle_value is not None:
             # Assumes dSPACE sends angle in radians.
             self.latest_angle_rad = angle_value
+            self.angle_sender.send_angle(
+                self.latest_angle_rad
+            )
+
+        if angle_value is not None:
+                    # Assumes dSPACE sends angle in radians.
+                    self.latest_angle_rad = angle_value
 
         if torque_value is not None:
             self.latest_torque = torque_value
@@ -768,7 +786,6 @@ class MainWindow(QMainWindow):
             torque=self.latest_torque,
             current_1=self.latest_current_1,
             current_2=self.latest_current_2,
-            moza_angle_deg=self.latest_moza_angle_deg,
         )
 
         self.spring_page.update_measurements(
@@ -819,33 +836,47 @@ class MainWindow(QMainWindow):
             f"{status} | Packets: {self.packet_count}"
         )
 
+    def read_latest_moza(self) -> Optional[dict]:
+            max_wheel_degs = 900.0
+            clock = pygame.time.Clock()
+            try:
+                while True:
+                    pygame.event.pump()
+                    raw_axis = wheel.get_axis(0)
+    
+                    angle_degrees = raw_axis*(max_wheel_degs/2.0)
+    
+                    payload = struct.pack('<d', float(angle_degrees))
+                    moza_sock.sendto(payload, (CONTROL_IP, CONTROL_PORT))
+    
+                    print(f"\rWheel Axis: {raw_axis:6.3f} | Angle: {angle_degrees:6.2f}", end = "")
+                    clock.tick_busy_loop(100) #update frequency for verbosin 
+    
+            except KeyboardInterrupt:
+                print("\n Stream got interrupted by the user")
+                moza_sock.close()
+    
+            finally:
+                pygame.quit()
+
     def closeEvent(self, event) -> None:
         self.receive_timer.stop()
         self.udp_receiver.close()
+        self.angle_sender.close()
+        moza_sock.close()
+        pygame.quit()
         event.accept()
 
 
-def main():
-
+def main() -> None:
     app = QApplication(sys.argv)
 
-    pygame.init()
-    pygame.joystick.init()
-
-    if pygame.joystick.get_count() == 0:
-        print("Moza R5 is not detected. Please try again")
-        sys.exit()
-
-    wheel = pygame.joystick.Joystick(0)
-    wheel.init()
-
-    print(f"Connected successfully to: {wheel.get_name()}")
-
-    window = MainWindow(wheel)   # pass wheel object
-
+    window = MainWindow()
     window.show()
+    window.read_latest_moza()
 
     sys.exit(app.exec())
+
 
 if __name__ == "__main__":
     main()
