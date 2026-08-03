@@ -47,28 +47,6 @@ PLOT_WINDOW_SECONDS = 10.0
 GUI_UPDATE_PERIOD_MS = 20  # 50 Hz refresh rate
 
 # ---------------------------------------------------------------------------
-# Hardware & Network Initialization
-# ---------------------------------------------------------------------------
-
-moza_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-pygame.init()
-pygame.joystick.init()
-
-if pygame.joystick.get_count() == 0:
-    print("Moza R5 is not detected. Please connect the device and try again.")
-    sys.exit()
-
-wheel = pygame.joystick.Joystick(0)
-wheel.init()
-
-print(f"Connected successfully to: {wheel.get_name()}")
-print(
-    f"Streaming steering angle to: {CONTROL_IP}:{CONTROL_PORT}"
-)
-
-
-# ---------------------------------------------------------------------------
 # Socket Communication Classes
 # ---------------------------------------------------------------------------
 
@@ -106,11 +84,14 @@ class UdpReceiver:
         return latest_packet
 
     def close(self) -> None:
-        self.socket.close()
+        try:
+            self.socket.close()
+        except OSError:
+            pass
 
 
 class UdpSender:
-    """UDP sender for forwarding signals (Supports both raw bytes & JSON)."""
+    """UDP sender for forwarding signals (Supports raw bytes & JSON)."""
 
     def __init__(self, ip: str, port: int, send_as_binary: bool = True):
         self.ip = ip
@@ -120,17 +101,23 @@ class UdpSender:
 
     def send_angle(self, angle: float) -> None:
         if self.send_as_binary:
-            # Send as 64-bit Little-Endian double (Ideal for Simulink/C)
+            # Send as 64-bit Little-Endian double (Simulink/C compatible)
             data = struct.pack("<d", float(angle))
         else:
             # Send as JSON string payload
             packet = {"angle": angle}
             data = json.dumps(packet).encode("utf-8")
 
-        self.socket.sendto(data, (self.ip, self.port))
+        try:
+            self.socket.sendto(data, (self.ip, self.port))
+        except OSError as err:
+            print(f"UDP send error: {err}")
 
     def close(self) -> None:
-        self.socket.close()
+        try:
+            self.socket.close()
+        except OSError:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +135,12 @@ class SpringWidget(QWidget):
         self.reference_angle_rad = 0.0
         self.kappa = 1.0
         self.setMinimumHeight(300)
+
+        # Pre-allocate pens to avoid allocations in paintEvent
+        self._axis_pen = QPen(QColor(140, 140, 140), 1, Qt.PenStyle.DashLine)
+        self._wall_pen = QPen(QColor(70, 70, 70), 5)
+        self._handle_pen = QPen(QColor(30, 90, 180), 8)
+        self._text_color = QColor(40, 40, 40)
 
     def set_angle(self, angle_rad: float) -> None:
         self.angle_rad = angle_rad
@@ -190,16 +183,14 @@ class SpringWidget(QWidget):
         )
 
         # Axis Line
-        axis_pen = QPen(QColor(140, 140, 140), 1, Qt.PenStyle.DashLine)
-        painter.setPen(axis_pen)
+        painter.setPen(self._axis_pen)
         painter.drawLine(
             QPointF(equilibrium_x, center_y - 80),
             QPointF(equilibrium_x, center_y + 80),
         )
 
         # Wall Anchor
-        wall_pen = QPen(QColor(70, 70, 70), 5)
-        painter.setPen(wall_pen)
+        painter.setPen(self._wall_pen)
         painter.drawLine(
             QPointF(fixed_x, center_y - 75), QPointF(fixed_x, center_y + 75)
         )
@@ -214,8 +205,7 @@ class SpringWidget(QWidget):
         )
 
         # Movable Handle Bar
-        handle_pen = QPen(QColor(30, 90, 180), 8)
-        painter.setPen(handle_pen)
+        painter.setPen(self._handle_pen)
         painter.drawLine(
             QPointF(handle_x, center_y - 60), QPointF(handle_x, center_y + 60)
         )
@@ -226,7 +216,7 @@ class SpringWidget(QWidget):
         )
 
         # Text Overlay
-        painter.setPen(QColor(40, 40, 40))
+        painter.setPen(self._text_color)
         angle_deg = math.degrees(self.angle_rad)
         reference_deg = math.degrees(self.reference_angle_rad)
 
@@ -535,6 +525,10 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("CAPT Motor Dashboard")
         self.resize(1100, 800)
 
+        # Hardware & Sockets Initialization
+        self.moza_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.wheel = self._init_joystick()
+
         self.udp_receiver = UdpReceiver(UDP_IP, UDP_PORT)
         self.angle_sender = UdpSender(
             ANGLE_FORWARD_IP, ANGLE_FORWARD_PORT, send_as_binary=True
@@ -572,17 +566,41 @@ class MainWindow(QMainWindow):
         self.moza_timer.timeout.connect(self.poll_moza_wheel)
         self.moza_timer.start(20)  # Poll at 50 Hz
 
+    @staticmethod
+    def _init_joystick() -> Optional[pygame.joystick.Joystick]:
+        """Safely initializes Pygame joystick for the Moza wheel."""
+        try:
+            pygame.init()
+            pygame.joystick.init()
+            if pygame.joystick.get_count() > 0:
+                wheel = pygame.joystick.Joystick(0)
+                wheel.init()
+                print(f"Connected successfully to: {wheel.get_name()}")
+                print(
+                    f"Streaming steering angle to: {CONTROL_IP}:{CONTROL_PORT}"
+                )
+                return wheel
+            else:
+                print("Moza R5 not detected. Application running without wheel input.")
+                return None
+        except Exception as err:
+            print(f"Failed to initialize joystick hardware: {err}")
+            return None
+
     def poll_moza_wheel(self) -> None:
         """Asynchronously poll the Moza steering wheel (Non-blocking)."""
+        if self.wheel is None:
+            return
+
         max_wheel_degs = 900.0
         try:
             pygame.event.pump()
-            raw_axis = wheel.get_axis(0)
+            raw_axis = self.wheel.get_axis(0)
             angle_degrees = raw_axis * (max_wheel_degs / 2.0)
 
             # Send raw Little-Endian double to control target
             payload = struct.pack("<d", float(angle_degrees))
-            moza_sock.sendto(payload, (CONTROL_IP, CONTROL_PORT))
+            self.moza_sock.sendto(payload, (CONTROL_IP, CONTROL_PORT))
         except Exception as error:
             print(f"Moza polling error: {error}")
 
@@ -601,7 +619,7 @@ class MainWindow(QMainWindow):
 
         if angle_value is not None:
             self.latest_angle_rad = angle_value
-            # Forward the decoded angle to port 5006
+            # Forward decoded angle payload
             self.angle_sender.send_angle(self.latest_angle_rad)
 
         if torque_value is not None:
@@ -669,7 +687,10 @@ class MainWindow(QMainWindow):
         self.moza_timer.stop()
         self.udp_receiver.close()
         self.angle_sender.close()
-        moza_sock.close()
+        try:
+            self.moza_sock.close()
+        except OSError:
+            pass
         pygame.quit()
         event.accept()
 
