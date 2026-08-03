@@ -1,18 +1,21 @@
 function crossings = fcn(angle)
 
-persistent crossings_prev
+persistent prev_angle crossings_count
 
-if isempty(crossings_prev) 
-    crossings_prev = 0; 
+if isempty(prev_angle)
+    prev_angle = angle;
+    crossings_count = 0;
 end
 
-% Default output 
-crossings = crossings_prev;
-
-% Detect zero crossing
-if angle == 0 
-    crossings_prev = crossings_prev + 1;
-    crossings = crossings_prev; 
+% Detect sign change (zero crossing)
+if (angle > 0 && prev_angle < 0) || (angle < 0 && prev_angle > 0)
+    crossings_count = crossings_count + 1;
 end
+
+% Update previous value
+prev_angle = angle;
+
+% Output
+crossings = crossings_count;
 
 end
