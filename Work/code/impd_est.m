@@ -11,6 +11,8 @@ else
 end 
 end  *)
 
+(*  *)
+
 function impd_est = fcn(near_zero, n_crossing, torque, angle, fact)
 
 % Small regularization parameter
