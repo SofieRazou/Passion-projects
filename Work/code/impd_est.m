@@ -12,62 +12,123 @@ end
 end  *)
 
 (*  *)
-
 function [kappa_est, b_est] = Continuous_Impedance_Estimator(torque, angle, velocity, dt)
 %#codegen
-% CONTINUOUS RECURSIVE LEAST SQUARES (RLS) IMPEDANCE ESTIMATOR
+% CONTINUOUS DUAL-EKF IMPEDANCE ESTIMATOR FOR 1-DOF CAPT MOTOR
 %
-% Dynamically estimates stiffness (kappa) and damping (b) anywhere in the workspace
-% without division-by-zero, singular spikes, or zero-crossing distortion.
+% Replaces standard algebraic/RLS division with an Extended Kalman Filter (EKF)
+% state-space estimator based on Roveda & Piga (2021).
+%
+% Inputs:
+%   torque   : Applied/commanded motor torque (tau_m) [N*m]
+%   angle    : Measured position/angle (theta) [rad]
+%   velocity : Measured/filtered angular velocity (omega) [rad/s]
+%   dt       : Sampling time step [s]
+%
+% Outputs:
+%   kappa_est : Estimated environment/active stiffness Ke [N*m/rad]
+%   b_est     : Motor/environment viscous damping estimate [N*m*s/rad]
 
-%% Persistent Estimator States
-persistent theta_vec    % Parameter vector [kappa; b]
-persistent P            % Estimation covariance matrix (2x2)
-persistent lambda_r     % Forgetting factor (0.95 to 0.99)
+%% 1. Physical Parameters of CAPT Motor System
+J = 0.005;     % Motor + load inertia [kg*m^2]
+B = 0.010;     % Nominal motor viscous damping coefficient [N*m*s/rad]
+theta_0 = 0.0; % Baseline reference contact point [rad]
 
-%% Initialization
-if isempty(theta_vec)
-    theta_vec = [1.816; 0.01]; % Initial guess for [kappa; b]
-    P         = 10.0 * eye(2); % Initial uncertainty matrix
-    lambda_r  = 0.98;          % Exponential forgetting factor
+%% 2. Persistent States for EKF 1 (Interaction Torque Estimator)
+persistent x1 P1 Q1 R1
+if isempty(x1)
+    x1 = zeros(3, 1);              % State vector: [theta; omega; tau_ext]
+    P1 = eye(3) * 0.1;             % State covariance
+    Q1 = diag([1e-6, 1e-4, 1e-2]); % Process noise covariance
+    R1 = diag([1e-6, 1e-4]);       % Measurement noise covariance
 end
 
-%% 1. Regressor Matrix (Phi = [angle, velocity])
-phi = [angle; velocity];
-
-%% 2. Prediction Error
-% Measured torque vs model-predicted torque
-torque_pred = phi' * theta_vec;
-e_error     = torque - torque_pred;
-
-%% 3. Dynamic Gain & Covariance Update
-% Regressor energy check: update ONLY when there is motion/displacement
-reg_energy = phi' * phi;
-
-if reg_energy > 1e-8
-    % Kalman Gain update: K = P * phi / (lambda + phi' * P * phi)
-    den = lambda_r + phi' * P * phi;
-    K   = (P * phi) / den;
-    
-    % Parameter update
-    theta_vec = theta_vec + K * e_error;
-    
-    % Covariance update (P = (I - K*phi')*P / lambda)
-    P = (eye(2) - K * phi') * P / lambda_r;
-    
-    % Enforce Covariance Bounding (prevents estimator covariance blow-up)
-    if trace(P) > 500
-        P = 10.0 * eye(2);
-    end
+%% 3. Persistent States for EKF 2 (Stiffness Ke / Kappa Estimator)
+persistent x2 P2 Q2 R2
+if isempty(x2)
+    x2 = [0.0; 0.0; 1.816];        % State vector: [theta; omega; Ke] (Initial Ke = 1.816)
+    P2 = eye(3) * 1.0;             % State covariance
+    Q2 = diag([1e-6, 1e-4, 1e-1]); % Process noise covariance
+    R2 = diag([1e-6, 1e-4]);       % Measurement noise covariance
 end
 
-%% 4. Non-Negative Physical Constraints
-% Stiffness kappa and damping b must remain non-negative
-theta_vec(1) = max(0.0, theta_vec(1)); % kappa >= 0
-theta_vec(2) = max(0.0, theta_vec(2)); % b >= 0
+%% ==================== EKF 1: INTERACTION TORQUE ESTIMATOR ====================
+% Predict Step (Euler Integration)
+theta1   = x1(1);
+omega1   = x1(2);
+tau_ext1 = x1(3);
 
-%% 5. Output Extraction
-kappa_est = theta_vec(1);
-b_est     = theta_vec(2);
+d_theta1   = omega1;
+d_omega1   = (torque - B * omega1 - tau_ext1) / J;
+d_tau_ext1 = 0.0;
+
+x1_pred = x1 + [d_theta1; d_omega1; d_tau_ext1] * dt;
+
+% Linearized State Jacobian Matrix F1 = df1/dx1
+F1 = [ 0.0,      1.0,       0.0;
+       0.0,   -B / J,   -1.0 / J;
+       0.0,      0.0,       0.0 ];
+
+% Covariance Prediction
+A1 = eye(3) + F1 * dt;
+P1_pred = A1 * P1 * A1' + Q1;
+
+% Measurement Update
+H1 = [1.0, 0.0, 0.0;
+      0.0, 1.0, 0.0];
+y1 = [angle; velocity] - H1 * x1_pred;
+S1 = H1 * P1_pred * H1' + R1;
+K1 = (P1_pred * H1') / S1;
+
+x1 = x1_pred + K1 * y1;
+P1 = (eye(3) - K1 * H1) * P1_pred;
+
+tau_ext_est = x1(3);
+
+%% ==================== EKF 2: STIFFNESS (KAPPA) ESTIMATOR ====================
+tau_threshold = 0.02; % Contact detection threshold [N*m]
+
+if abs(tau_ext_est) > tau_threshold
+    theta2 = x2(1);
+    omega2 = x2(2);
+    Ke2    = x2(3);
+
+    % Predict Step
+    d_theta2 = omega2;
+    d_omega2 = (torque - B * omega2 - Ke2 * (theta2 - theta_0)) / J;
+    d_Ke2    = 0.0;
+
+    x2_pred = x2 + [d_theta2; d_omega2; d_Ke2] * dt;
+
+    % Linearized State Jacobian Matrix F2 = df2/dx2
+    F2 = [ 0.0,               1.0,                     0.0;
+          -Ke2 / J,        -B / J,  -(theta2 - theta_0) / J;
+           0.0,               0.0,                     0.0 ];
+
+    % Covariance Prediction
+    A2 = eye(3) + F2 * dt;
+    P2_pred = A2 * P2 * A2' + Q2;
+
+    % Measurement Update
+    H2 = [1.0, 0.0, 0.0;
+          0.0, 1.0, 0.0];
+    y2 = [angle; velocity] - H2 * x2_pred;
+    S2 = H2 * P2_pred * H2' + R2;
+    K2 = (P2_pred * H2') / S2;
+
+    x2 = x2_pred + K2 * y2;
+    P2 = (eye(3) - K2 * H2) * P2_pred;
+
+    % Non-Negativity Physical Constraint on Stiffness
+    x2(3) = max(0.0, x2(3));
+else
+    % Hold State when outside active interaction
+    x2(1) = angle;
+    x2(2) = velocity;
+end
+
+%% 4. Assign Output Arguments
+kappa_est = x2(3); % Active stiffness estimate
+b_est     = B;     % Calibrated viscous damping parameter
 
 end
