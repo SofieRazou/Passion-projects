@@ -1,204 +1,96 @@
 function time_win = Time_window_est(E_err, lambda_d, Z, Zd)
 %#codegen
+% TIME_WINDOW_EST Adaptive observation window estimator using 5-sample time-window
+% local minimum detection based on Dinc et al. (IEEE TOH 2024).
 %
-% Adaptive observation window estimator.
+% Inputs:
+%   E_err    : Accumulated energy error/net energy [J]
+%   lambda_d : Desired system eigenvalue / dynamic pole
+%   Z        : Current impedance estimate
+%   Zd       : Target/desired impedance
 %
-% Small window:
-%   - large energy error
-%   - large impedance mismatch
-%   - fast-changing dynamics
-%
-% Large window:
-%   - stable interaction
-%   - small errors
-%   - slow dynamics
+% Output:
+%   time_win : Adaptive time window duration [s]
 
-persistent E_history
-persistent history_index
-persistent sample_count
-persistent zcr_filtered
-persistent t_prev
+persistent E_window      % 5-sample window: [E(t-2), E(t-1), E(t), E(t+1), E(t+2)]
+persistent t_prev        % Previous smoothed window output
 
-%% Limits
-Tmin = 0.01;
-Tmax = 0.50;
-
-%% References
-Eref = 1e-3;
+%% Limits & Reference Gains
+Tmin = 0.01;            % Minimum window time [s]
+Tmax = 0.50;            % Maximum window time [s]
 
 tau_min = Tmin;
 tau_max = Tmax;
 
-history_length = 100;
-
-%% Gains
+Eref = 1e-3;
 k_energy = 0.8;
 k_impedance = 0.8;
-k_zcr = 1.5;
-
-alpha_zcr = 0.05;
-alpha_time = 0.25;
-
-zero_threshold = 1e-9;
-
+alpha_time = 0.25;      % Smoothing filter factor
 
 %% Initialization
-if isempty(E_history)
-
-    E_history = zeros(history_length,1);
-
-    history_index = 1;
-    sample_count = 0;
-
-    zcr_filtered = 0;
-
-    t_prev = 0.1;
-
+if isempty(E_window)
+    E_window = zeros(5, 1);
+    t_prev   = 0.1;
 end
 
+%% 1. Slide 5-Sample Time-Window (Fig. 4)
+% Shift energy history left: t-2 <- t-1 <- t <- t+1 <- t+2
+E_window(1) = E_window(2);
+E_window(2) = E_window(3);
+E_window(3) = E_window(4);
+E_window(4) = E_window(5);
+E_window(5) = E_err;
 
-%% Store energy history
+%% 2. Time-Window Local Minimum Detection (Eq. 10)
+% Condition: E(t-2) > E(t-1) > E(t) < E(t+1) < E(t+2)
+% Validates true energy cycle transition without noise-induced false triggers
+is_cycle_min = (E_window(1) > E_window(2)) && ...
+               (E_window(2) > E_window(3)) && ...
+               (E_window(3) < E_window(4)) && ...
+               (E_window(4) < E_window(5));
 
-E_history(history_index)=E_err;
-
-history_index = history_index + 1;
-
-if history_index > history_length
-    history_index = 1;
-end
-
-
-if sample_count < history_length
-    sample_count = sample_count + 1;
-end
-
-
-
-%% Zero crossing rate
-
-zero_crossings = 0;
-
-
-if sample_count > 1
-
-    for i = 2:sample_count
-
-        a = E_history(i-1);
-        b = E_history(i);
-
-        if ((a > zero_threshold)&&(b < -zero_threshold)) || ...
-           ((a < -zero_threshold)&&(b > zero_threshold))
-
-            zero_crossings = zero_crossings + 1;
-
-        end
-
-    end
-
-
-    zcr_current = zero_crossings/(sample_count-1);
-
-else
-
-    zcr_current = 0;
-
-end
-
-
-
-zcr_filtered = ...
-    (1-alpha_zcr)*zcr_filtered + ...
-    alpha_zcr*zcr_current;
-
-
-
-%% System time constant
-
+%% 3. System Time Constant Calculation
 lambda_real = real(lambda_d);
 
-
 if lambda_real < -1e-6
-
     tau_c = -1/lambda_real;
-
 else
-
     tau_c = tau_max;
-
 end
 
+tau_c = min(max(tau_c, tau_min), tau_max);
 
-tau_c = min(max(tau_c,tau_min),tau_max);
+%% 4. Normalized Error & Impedance Mismatch
+energy_error = abs(E_err) / max(Eref, 1e-12);
+impedance_error = norm(Z - Zd) / (norm(Zd) + 1e-12);
 
+% Saturation bounds
+energy_error = min(energy_error, 5.0);
+impedance_error = min(impedance_error, 5.0);
 
+%% 5. Adaptive Window Scaling (Integrating Paper's Cycle Detection)
+% Basic error factor based on energy and impedance mismatch
+error_factor = 1.0 / (1.0 + k_energy * energy_error + k_impedance * impedance_error);
 
-%% Normalized errors
-
-energy_error = abs(E_err)/max(Eref,1e-12);
-
-
-impedance_error = norm(Z-Zd)/(norm(Zd)+1e-12);
-
-
-
-% Limit
-
-energy_error = min(energy_error,5);
-impedance_error = min(impedance_error,5);
-
-
-
-%% Adaptive scaling
-
-%
-% errors reduce the window
-%
-
-error_factor = 1/(1 + ...
-    k_energy*energy_error + ...
-    k_impedance*impedance_error);
-
-
-
-%
-% fast variations reduce the window
-%
-
-zcr_factor = 1/(1+k_zcr*zcr_filtered);
-
-
-
-%
-% combine
-%
-
-time_candidate = tau_c * ...
-    error_factor * ...
-    zcr_factor;
-
-
-
-%% Add lower bound
-
-time_candidate = min(max(time_candidate,Tmin),Tmax);
-
-
-
-%% Smooth output
-
-time_win = ...
-    (1-alpha_time)*t_prev + ...
-    alpha_time*time_candidate;
-
-
-
-time_win = min(max(time_win,Tmin),Tmax);
-
-
-t_prev=time_win;
-
-
+% If time-window validates an energy cycle completion (local minimum),
+% we confirm dynamic stability and scale toward the nominal target window.
+if is_cycle_min
+    cycle_factor = 1.0; 
+else
+    % During transient/noisy phases without cycle minimum, reduce window size
+    cycle_factor = 0.5; 
 end
 
+% Combine candidate time window
+time_candidate = tau_c * error_factor * cycle_factor;
+time_candidate = min(max(time_candidate, Tmin), Tmax);
+
+%% 6. Smooth Output Transition
+time_win = (1.0 - alpha_time) * t_prev + alpha_time * time_candidate;
+time_win = min(max(time_win, Tmin), Tmax);
+
+t_prev = time_win;
+
+end
 
 
