@@ -13,55 +13,61 @@ end  *)
 
 (*  *)
 
-function [impd_est, impd_reg_est] = fcn(near_zero, n_crossing, torque, angle, fact)
+function [kappa_est, b_est] = Continuous_Impedance_Estimator(torque, angle, velocity, dt)
 %#codegen
-% NATURAL REGULARIZED IMPEDANCE (KAPPA) ESTIMATOR
+% CONTINUOUS RECURSIVE LEAST SQUARES (RLS) IMPEDANCE ESTIMATOR
 %
-% Prevents large impedance spikes (e.g., 500+) by smoothly approximating
-% stiffness kappa across zero crossings using bounded regularized regression.
+% Dynamically estimates stiffness (kappa) and damping (b) anywhere in the workspace
+% without division-by-zero, singular spikes, or zero-crossing distortion.
 
-%% 1. Physical Parameters
-kappa_0 = 1.816;      % Nominal baseline stiffness kappa [N*m/rad]
-kappa_max = 30.0;     % Maximum physical stiffness cap [N*m/rad]
-kappa_min = 0.1;      % Minimum physical stiffness floor [N*m/rad]
+%% Persistent Estimator States
+persistent theta_vec    % Parameter vector [kappa; b]
+persistent P            % Estimation covariance matrix (2x2)
+persistent lambda_r     % Forgetting factor (0.95 to 0.99)
 
-epsilon = 0.05;       % Regularization tuning factor (prevents 1/0 singularities)
-angle_width = 0.05;   % Zero-crossing boundary layer width [rad] (~3 degrees)
-
-%% 2. Shifted Angle Calculation
-angle_shift = angle - n_crossing * pi;
-
-%% 3. Smooth Regularized Stiffness (Kappa) Approximation
-% Regularized formula: (Torque * Angle + kappa_0 * epsilon) / (Angle^2 + epsilon)
-% Guarantees impd -> kappa_0 smoothly as angle -> 0
-num_zero   = (fact * abs(angle_shift)) + (kappa_0 * epsilon);
-den_zero   = (angle_shift^2) + epsilon;
-kappa_zero = num_zero / den_zero;
-
-num_torque   = (torque * angle) + (kappa_0 * epsilon);
-den_torque   = (angle^2) + epsilon;
-kappa_torque = num_torque / den_torque;
-
-%% 4. Continuous Smooth Blending (Exponential Weighting)
-% Smooth weight w: 0 near zero crossings, 1 far away from zero
-w_zero   = 1.0 - exp(-(angle_shift / angle_width)^2);
-w_torque = 1.0 - exp(-(angle / angle_width)^2);
-
-% Blend between baseline stiffness kappa_0 and measured kappa
-impd_zero_blend   = (1.0 - w_zero) * kappa_0 + w_zero * kappa_zero;
-impd_torque_blend = (1.0 - w_torque) * kappa_0 + w_torque * kappa_torque;
-
-%% 5. Select & Cap Outputs
-if near_zero
-    impd_est     = impd_zero_blend;
-    impd_reg_est = kappa_max;
-else
-    impd_est     = impd_torque_blend;
-    impd_reg_est = impd_torque_blend;
+%% Initialization
+if isempty(theta_vec)
+    theta_vec = [1.816; 0.01]; % Initial guess for [kappa; b]
+    P         = 10.0 * eye(2); % Initial uncertainty matrix
+    lambda_r  = 0.98;          % Exponential forgetting factor
 end
 
-% Enforce hard physical bounds [kappa_min, kappa_max]
-impd_est     = min(max(impd_est, kappa_min), kappa_max);
-impd_reg_est = min(max(impd_reg_est, kappa_min), kappa_max);
+%% 1. Regressor Matrix (Phi = [angle, velocity])
+phi = [angle; velocity];
+
+%% 2. Prediction Error
+% Measured torque vs model-predicted torque
+torque_pred = phi' * theta_vec;
+e_error     = torque - torque_pred;
+
+%% 3. Dynamic Gain & Covariance Update
+% Regressor energy check: update ONLY when there is motion/displacement
+reg_energy = phi' * phi;
+
+if reg_energy > 1e-8
+    % Kalman Gain update: K = P * phi / (lambda + phi' * P * phi)
+    den = lambda_r + phi' * P * phi;
+    K   = (P * phi) / den;
+    
+    % Parameter update
+    theta_vec = theta_vec + K * e_error;
+    
+    % Covariance update (P = (I - K*phi')*P / lambda)
+    P = (eye(2) - K * phi') * P / lambda_r;
+    
+    % Enforce Covariance Bounding (prevents estimator covariance blow-up)
+    if trace(P) > 500
+        P = 10.0 * eye(2);
+    end
+end
+
+%% 4. Non-Negative Physical Constraints
+% Stiffness kappa and damping b must remain non-negative
+theta_vec(1) = max(0.0, theta_vec(1)); % kappa >= 0
+theta_vec(2) = max(0.0, theta_vec(2)); % b >= 0
+
+%% 5. Output Extraction
+kappa_est = theta_vec(1);
+b_est     = theta_vec(2);
 
 end
