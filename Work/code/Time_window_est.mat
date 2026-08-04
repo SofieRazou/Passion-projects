@@ -1,96 +1,99 @@
-function time_win = Time_window_est(E_err, lambda_d, Z, Zd)
+function [F_wall, alpha_c, time_win] = Time_window_est(E_err, lambda_d, Z, Zd)
 %#codegen
-% TIME_WINDOW_EST Staircase adaptive observation window estimator 
-% based on Dinc et al. (IEEE TOH 2024).
-%
-% Generates a piecewise-constant "downward staircase" output waveform:
-%   - Value updates ONLY when a valid energy cycle completion is verified 
-%     by the 5-sample time window.
-%   - Value remains HELD CONSTANT between cycle detections.
+% TIME_WINDOW_EST Adaptive observation window & staircase damping controller
+% based on Dinc et al. (IEEE TOH 2024) for 1-DOF haptic interaction.
 %
 % Inputs:
-%   E_err    : Accumulated energy error / net energy [J]
-%   lambda_d : Desired system eigenvalue / dynamic pole
-%   Z        : Current impedance estimate
-%   Zd       : Target/desired impedance
+%   E_err    : Accumulated energy error or instantaneous net energy [J]
+%   lambda_d : Dynamic pole / desired eigenvalue
+%   Z        : Estimated environment impedance/stiffness (Ke from EKF)
+%   Zd       : Desired/target virtual impedance (Kd)
 %
-% Output:
-%   time_win : Adaptive time window / damping factor (staircase profile)
+% Outputs:
+%   F_wall   : Rendered wall control force/torque [N*m]
+%   alpha_c  : Cycle-adaptive damping gain (staircase profile)
+%   time_win : Adaptive observation window duration [s]
 
-persistent E_window       % 5-sample window buffer: [E(t-2), E(t-1), E(t), E(t+1), E(t+2)]
-persistent E_prev_cycle   % Energy recorded at the end of the previous cycle
-persistent time_win_hold  % Persistent held value for zero-order hold staircase
+persistent E_window       % 5-sample buffer: [E(t-2), E(t-1), E(t), E(t+1), E(t+2)]
+persistent E_prev_cycle   % Energy recorded at previous cycle boundary
+persistent alpha_c_hold   % Held adaptive damping gain (Zero-Order Hold)
+persistent time_win_hold  % Held window value
 
-%% Limits & Reference Parameters
-Tmin = 0.01;              % Minimum window time [s]
-Tmax = 0.50;              % Maximum window time [s]
+%% Limits & Bounds
+Tmin = 0.01;              % Min window time [s]
+Tmax = 0.50;              % Max window time [s]
 
-tau_min = Tmin;
-tau_max = Tmax;
-
-Eref = 1e-3;
+Eref = 1e-3;              % Energy scaling factor
 k_energy = 0.8;
 k_impedance = 0.8;
 
 %% Initialization
 if isempty(E_window)
-    E_window        = zeros(5, 1);
-    E_prev_cycle    = 0.0;
-    time_win_hold   = 0.50; % Initialized at upper bound (large initial correction)
+    E_window      = zeros(5, 1);
+    E_prev_cycle  = 0.0;
+    alpha_c_hold  = 0.0;
+    time_win_hold = 0.10;
 end
 
-%% 1. Maintain 5-Sample Time-Window Buffer (Fig. 4)
-% Shift energy history: E(t-2) <- E(t-1) <- E(t) <- E(t+1) <- E(t+2)
+%% 1. Slide 5-Sample Time Window (Eq. 10 in paper)
+% Shift energy history: t-2 <- t-1 <- t <- t+1 <- t+2
 E_window(1) = E_window(2);
 E_window(2) = E_window(3);
 E_window(3) = E_window(4);
 E_window(4) = E_window(5);
 E_window(5) = E_err;
 
-%% 2. Time-Window Local Minimum Detection (Eq. 10)
+%% 2. Energy Cycle Local Minimum Verification
 % Condition: E(t-2) > E(t-1) > E(t) < E(t+1) < E(t+2)
 is_cycle_detected = (E_window(1) > E_window(2)) && ...
                     (E_window(2) > E_window(3)) && ...
                     (E_window(3) < E_window(4)) && ...
                     (E_window(4) < E_window(5));
 
-%% 3. Discrete "Staircase" Step Update at Cycle Completion (Eq. 8)
+%% 3. Discrete "Staircase" Step Update at Cycle Completion
 if is_cycle_detected
-    % Energy at detected cycle completion (E_n)
+    % Energy at detected cycle completion E_n
     E_curr_cycle = E_window(3);
     
     % Generated energy over the cycle: E_gen = E_n - E_{n-1}
     E_gen = E_curr_cycle - E_prev_cycle;
     
-    % System time constant base
+    % Base system time constant calculation
     lambda_real = real(lambda_d);
     if lambda_real < -1e-6
-        tau_c = -1/lambda_real;
+        tau_c = -1 / lambda_real;
     else
-        tau_c = tau_max;
+        tau_c = Tmax;
     end
-    tau_c = min(max(tau_c, tau_min), tau_max);
+    tau_c = min(max(tau_c, Tmin), Tmax);
 
-    % Normalized error calculations
+    % Normalized error factors
     energy_error    = min(abs(E_gen) / max(Eref, 1e-12), 5.0);
     impedance_error = min(norm(Z - Zd) / (norm(Zd) + 1e-12), 5.0);
 
-    % Calculate new discrete staircase level for the upcoming cycle
+    % Calculate adaptive scaling
     error_factor = 1.0 / (1.0 + k_energy * energy_error + k_impedance * impedance_error);
     
-    % Downward step calculation as energy generation reduces
-    time_candidate = tau_c * error_factor;
+    % Update piecewise-constant staircase levels (Zero-Order Hold)
+    time_win_hold = min(max(tau_c * error_factor, Tmin), Tmax);
     
-    % Update staircase held value (Zero-Order Hold for the entire next cycle)
-    time_win_hold = min(max(time_candidate, Tmin), Tmax);
+    % Increase/decrease damping according to cycle energy dissipation (Eq. 8)
+    if E_gen > 0
+        alpha_c_hold = alpha_c_hold + (E_gen / Eref);
+    else
+        alpha_c_hold = max(0.0, alpha_c_hold - 0.05); % Decay toward transparency
+    end
     
     % Store energy for next cycle comparison
     E_prev_cycle = E_curr_cycle;
 end
 
-%% 4. Zero-Order Hold Output
-% Returns constant step value between cycle updates (creating downward staircase)
+%% 4. Assign Output States
+alpha_c  = alpha_c_hold;
 time_win = time_win_hold;
+
+% Sample control force computation
+F_wall = -alpha_c * Z;
 
 end
 
