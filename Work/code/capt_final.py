@@ -419,10 +419,10 @@ class SignalPlotPage(QWidget):
         self.angle_curve = self.angle_plot.plot(
             pen=pg.mkPen(color=(64, 224, 208), width=2), name=ANGLE_SIGNAL_NAME
         )
-        self.moza_angle_curve = self.moza_angle_plot(
+        self.moza_angle_curve = self.moza_angle_plot.plot(
             pen = pg.mkPen(color=(64, 224, 208), width=2), name=R5_ANGLE_SIGNAL_NAME
         )
-        self.moza_torque_curve = self.moza_torque_plot(
+        self.moza_torque_curve = self.moza_torque_plot.plot(
                     pen = pg.mkPen(color=(64, 224, 208), width=2), name=R5_TORQUE_SIGNAL_NAME
         )
         self.current_plot.addLegend()
@@ -528,11 +528,15 @@ class SignalPlotPage(QWidget):
         self.current_1_values.clear()
         self.current_2_values.clear()
         self.angle_values.clear()
+        self.moza_angle_values.clear()
+        self.moza_torque_values.clear()
 
         self.current_1_curve.clear()
         self.current_2_curve.clear()
         self.torque_curve.clear()
         self.angle_curve.clear()
+        self.moza_angle_curve.clear()
+        self.moza_torque_curve.clear()
 
 
 class HomePage(QWidget):
@@ -668,36 +672,28 @@ class MainWindow(QMainWindow):
             return None
 
     def poll_moza_wheel(self) -> None:
-        """Asynchronously poll the Moza steering wheel in non-blocking way """
+        """Poll the Moza wheel once (called by QTimer)."""
+
         if self.wheel is None:
             return
 
         max_wheel_degs = 900.0
+
         try:
             pygame.event.pump()
+
             raw_axis = self.wheel.get_axis(0)
-            #FETCH ANGLE 
+
+            # Steering angle
             self.latest_angle_moza = raw_axis * (max_wheel_degs / 2.0)
 
-            # Send raw Little-Endian double to control target
-            payload = struct.pack("<d", float(self.latest_angle_moza))
-            torque_history = [0.0] * WIDTH
+            # Simulated torque (replace with real value if available)
+            self.latest_torque_moza = abs(raw_axis) * MOZA_R5_MAX_TORQUE
 
+            # Send steering angle
+            payload = struct.pack("<d", self.latest_angle_moza)
             self.moza_sock.sendto(payload, (CONTROL_IP, CONTROL_PORT))
-            #FETCH TORQUE  
-            running = True
-            while running:
-                for event in pygame.event.get():
-                    if event.type == pygame.QUIT:
-                        running = False
 
-                simulated_ffb_load = abs(raw_axis) 
-                self.latest_torque_moza = simulated_ffb_load * MOZA_R5_MAX_TORQUE
-                torque_history.append(self.latest_torque_moza)
-                if len(torque_history) > WIDTH:
-                    torque_history.pop(0)
-
-    
         except Exception as error:
             print(f"Moza polling error: {error}")
 
