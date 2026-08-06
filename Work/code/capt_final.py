@@ -735,8 +735,8 @@ class MainWindow(QMainWindow):
             torque=self.latest_torque,
             current_1=self.latest_current_1,
             current_2=self.latest_current_2,
-            moza_angle = self.latest_angle_moza
-            moza_torque = self.latest_torque_moza,
+            moza_angle=self.latest_angle_moza,
+            moza_torque=self.latest_torque_moza,
         )
 
         self.spring_page.update_measurements(
