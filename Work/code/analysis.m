@@ -134,4 +134,50 @@ for i = 1:size(id,1)
         rmse_plateau(i,seg) = sqrt(mean((seg_load(is_plateau) - seg_sent(is_plateau)).^2));
         rmse_edge(i,seg)    = sqrt(mean((seg_sent(is_edge) - seg_load(is_edge)).^2));
         
-        % Append extracted segment
+        % Append extracted segment data into exp_sorted matrix
+        % Col 1: seg_angle | Col 2: seg_load | Col 3: seg_time
+        current_segment_data = [seg_angle(:), seg_load(:), seg_time(:)];
+        exp_sorted = [exp_sorted; current_segment_data];
+        
+        subplot(num_segments, 1, seg)
+        plot(seg_time - seg_time(1), seg_sent + torque_preload, 'Color', [.4 .4 .4], 'LineWidth', 1)
+        hold on
+        plot(seg_time - seg_time(1), seg_load + torque_preload, 'Color', [.8 .3 .2], 'LineWidth', 1)
+        xlim([0, seg_time(end) - seg_time(1)])
+        ylabel("shifted torque (Nm)")
+        if seg == 3
+            xlabel("time (s)")
+            title(['center: ', num2str(mean(c_angle(i,:))), ' deg'])
+        end
+        clear R P
+    end
+end
+
+%% Save to exp_sorted.mat
+save('exp_sorted.mat', 'exp_sorted');
+disp('Saved exp_sorted.mat successfully!');
+
+%% Subfunction to detect 5 periods
+function [segment, t_segment, idx_start, idx_end] = extract_5_periods(t, signal)
+% EXTRACT_5_PERIODS - Extracts 5 full periods from a trapezoidal wave
+sig_norm = (signal - min(signal)) / (max(signal) - min(signal));
+dt = mean(diff(t));
+dsig = diff(sig_norm) / dt;
+
+sorted_dsig = sort(dsig(5:end), 'descend');
+secondMax = sorted_dsig(2);
+rise_thresh = 0.20 * secondMax;
+is_rising = dsig > rise_thresh;
+
+rising_starts = find(diff([0; is_rising(:)]) == 1);
+
+if length(rising_starts) < 7
+    error('Not enough periods detected. Found %d rising edges, need at least 5.', ...
+        length(rising_starts));
+end
+
+idx_start = rising_starts(2);
+idx_end   = rising_starts(7) - 1;  % just before the 6th period starts
+segment   = signal(idx_start : idx_end);
+t_segment = t(idx_start : idx_end);
+end
