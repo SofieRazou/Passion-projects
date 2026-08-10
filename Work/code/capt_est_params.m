@@ -58,14 +58,12 @@ for s = 1:num_total_segments
     % ----------------------------------------------------------
     % GREY-BOX ESTIMATION (Direct Physical Parameter Fitting)
     % ----------------------------------------------------------
-    % Initial guesses for parameters: p = [b; k]
-    p_init = [0.1; 1.0]; % [b_guess; k_guess]
+    p_init = [0.1; 1.0]; % Initial guesses: [b_guess; k_guess]
     
-    % Construct idgrey model structure using local ODE function
-    % 'c' denotes continuous-time model
-    init_sys = idgrey('motor_ode', p_init, 'c', J_known);
+    % --- FIX HERE: Use function handle @motor_ode instead of string 'motor_ode' ---
+    init_sys = idgrey(@motor_ode, p_init, 'c', J_known);
     
-    % Enforce physical bounds: b > 0, k > 0
+    % Enforce physical bounds: b >= 0, k >= 0
     init_sys.Structure.parameters(1).Minimum = 0; % b_min
     init_sys.Structure.parameters(2).Minimum = 0; % k_min
     
@@ -122,13 +120,12 @@ fprintf('Average Model Fit    : %.2f%%\n', mean(fit_gb_all));
 function [A, B, C, D] = motor_ode(p, Ts, aux)
     % p(1) = b (damping)
     % p(2) = k (stiffness)
-    % aux  = J (inertia, passed as auxiliary argument)
+    % aux  = J (inertia)
     
-    b = p(1);
-    k = p(2);
-    J = aux;
+    b = double(p(1));
+    k = double(p(2));
+    J = double(aux);
     
-    % State-space system matrices
     A = [ 0   ,   1   ;
          -k/J ,  -b/J ];
      
