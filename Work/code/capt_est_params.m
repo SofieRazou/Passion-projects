@@ -60,14 +60,14 @@ for s = 1:num_total_segments
     % ----------------------------------------------------------
     p_init = [0.1; 1.0]; % Initial guesses: [b_guess; k_guess]
     
-    % Line 57 Fix: Function handle with 6-output ODE function
+    % Construct idgrey model structure
     init_sys = idgrey(@motor_ode, p_init, 'c', J_known);
     
-    % Enforce physical bounds: b >= 0, k >= 0
-    init_sys.Structure.Parameters(1).Minimum = 0; % b_min
-    init_sys.Structure.Parameters(2).Minimum = 0; % k_min
+    % FIX: Capital 'P' in Parameters to prevent subasgn error
+    init_sys.Structure.Parameters(1).Minimum = 0; % b_min >= 0
+    init_sys.Structure.Parameters(2).Minimum = 0; % k_min >= 0
     
-    % Line 67: Estimate physical parameters using greyest
+    % Estimate physical parameters using greyest
     opt = greyestOptions('Display', 'off');
     opt.SearchMethod = 'lm'; % Levenberg-Marquardt optimizer
     
@@ -136,9 +136,6 @@ function [A, B, C, D, K, X0] = motor_ode(p, Ts, aux)
     
     D = 0;
     
-    % K: Noise coupling matrix (2x1 for 2 states, 1 output)
-    K = zeros(2, 1);
-    
-    % X0: Initial state vector (2x1)
+    K  = zeros(2, 1);
     X0 = zeros(2, 1);
 end
