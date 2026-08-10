@@ -1,11 +1,3 @@
-
-Error using idParametric/setpar (line 38)
-In the "SETPAR(SYS, TYPE)" command, the value of TYPE must be 'value', 'free', 'bounds' or 'label'.
-
-Error in capt_est_params (line 68)
-    init_sys = setpar(init_sys, 'Min', [0; 0]);
-
-
 clear
 close all
 clc
@@ -13,7 +5,7 @@ clc
 %% =============================================================
 %                  KNOWN PHYSICAL PARAMETERS
 % =============================================================
-J_known = 0.0103; % Motor inertia [kg*m^2]
+J_known = 0.0103; % Motor inertia [kg*m^2] (Fixed)
 
 %% =============================================================
 %                   LOAD AND PREPARE DATA
@@ -36,7 +28,7 @@ fprintf('Found %d individual segments to analyze.\n\n', num_total_segments);
 % Preallocate summary result arrays
 b_est_all  = zeros(num_total_segments, 1);
 k_est_all  = zeros(num_total_segments, 1);
-fit_gb_all = zeros(num_total_segments, 1);
+fit_tf_all = zeros(num_total_segments, 1);
 
 %% =============================================================
 %              LOOP THROUGH EACH EXPERIMENT SEGMENT
@@ -48,7 +40,7 @@ for s = 1:num_total_segments
     seg_load  = exp_sorted(idx, 2); % Column 2: Measured Torque (Nm)
     seg_time  = exp_sorted(idx, 3); % Column 3: Time (s)
     
-    % Compute sampling time
+    % Compute sampling time for this segment
     Ts = mean(diff(seg_time));
     
     % Zero-mean signals & convert angle to radians
@@ -64,42 +56,34 @@ for s = 1:num_total_segments
     data_id.ExperimentName = {sprintf('Segment_%d', s)};
     
     % ----------------------------------------------------------
-    % GREY-BOX ESTIMATION (Direct Physical Parameter Fitting)
+    % TRANSFER FUNCTION ESTIMATION (2 poles, 0 zeros)
     % ----------------------------------------------------------
-    p_init = [0.1; 1.0]; % Initial guesses: [b_guess; k_guess]
+    Gest = tfest(data_id, 2, 0);
     
-    % Construct idgrey model structure
-    init_sys = idgrey(@motor_ode, p_init, 'c', J_known);
+    % Extract denominator coefficients: den = [1, a1, a0]
+    [~, den] = tfdata(Gest, 'v');
     
-    % --- FIX FOR LINE 68: Use setpar to assign bounds safely ---
-    % Enforce non-negative physical bounds (b >= 0, k >= 0)
-    init_sys = setpar(init_sys, 'Min', [0; 0]); 
+    a1 = den(2);
+    a0 = den(3);
     
-    % Estimate physical parameters using greyest
-    opt = greyestOptions('Display', 'off');
-    opt.SearchMethod = 'lm'; % Levenberg-Marquardt optimizer
+    % Map to physical parameters using known inertia J
+    b_est = a1 * J_known; % b = a1 * J
+    k_est = a0 * J_known; % k = a0 * J
     
-    G_grey = greyest(data_id, init_sys, opt);
-    
-    % Extract estimated parameters cleanly using getpvec
-    p_est = getpvec(G_grey);
-    b_est = p_est(1);
-    k_est = p_est(2);
-    
-    % Calculate model fit percentage
-    [~, fit_gb] = compare(data_id, G_grey);
+    % Calculate TF fit percentage
+    [~, fit_tf] = compare(data_id, Gest);
     
     % Store metrics
     b_est_all(s)  = b_est;
     k_est_all(s)  = k_est;
-    fit_gb_all(s) = fit_gb;
+    fit_tf_all(s) = fit_tf;
     
-    % Plot response for current segment
-    figure('Name', sprintf('Segment %d Grey-Box Fit', s));
-    compare(data_id, G_grey);
+    % Plot comparison for this segment
+    figure('Name', sprintf('Segment %d TF Fit', s));
+    compare(data_id, Gest);
     grid on;
-    title(sprintf('Segment %d Grey-Box Fit = %.1f%% (b = %.4f, k = %.4f)', ...
-        s, fit_gb, b_est, k_est));
+    title(sprintf('Segment %d TF Fit = %.1f%% (b = %.4f, k = %.4f)', ...
+        s, fit_tf, b_est, k_est));
     set(findall(gcf, 'Type', 'Line'), 'LineWidth', 1.5);
     drawnow;
 end
@@ -108,11 +92,11 @@ end
 %                   PRINT SUMMARY RESULTS
 % =============================================================
 Segment_ID   = (1:num_total_segments)';
-SummaryTable = table(Segment_ID, b_est_all, k_est_all, fit_gb_all, ...
-    'VariableNames', {'Segment', 'Damping_b_Nms_rad', 'Stiffness_k_Nm_rad', 'GreyBox_Fit_Percent'});
+SummaryTable = table(Segment_ID, b_est_all, k_est_all, fit_tf_all, ...
+    'VariableNames', {'Segment', 'Damping_b_Nms_rad', 'Stiffness_k_Nm_rad', 'TF_Fit_Percent'});
 
 disp('========================================================================');
-disp('                  GREY-BOX SYSTEM IDENTIFICATION RESULTS                ');
+disp('          TRANSFER FUNCTION ESTIMATION WITH FIXED J RESULTS             ');
 disp('========================================================================');
 disp(SummaryTable);
 
@@ -120,30 +104,4 @@ disp(SummaryTable);
 fprintf('\n--- OVERALL AVERAGES ACROSS %d SEGMENTS ---\n', num_total_segments);
 fprintf('Average Damping (b)  : %.6f N*m*s/rad\n', mean(b_est_all));
 fprintf('Average Stiffness (k): %.6f N*m/rad\n', mean(k_est_all));
-fprintf('Average Model Fit    : %.2f%%\n', mean(fit_gb_all));
-
-%% =============================================================
-%             GREY-BOX LOCAL ODE MATRIX FUNCTION
-% =============================================================
-function [A, B, C, D, K, X0] = motor_ode(p, Ts, aux)
-    % p(1) = b (damping)
-    % p(2) = k (stiffness)
-    % aux  = J (inertia)
-    
-    b = double(p(1));
-    k = double(p(2));
-    J = double(aux);
-    
-    A = [ 0   ,   1   ;
-         -k/J ,  -b/J ];
-     
-    B = [ 0   ;
-         1/J ];
-     
-    C = [ 1   ,   0  ];
-    
-    D = 0;
-    
-    K  = zeros(2, 1);
-    X0 = zeros(2, 1);
-end
+fprintf('Average Model Fit    : %.2f%%\n', mean(fit_tf_all));
