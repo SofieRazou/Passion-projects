@@ -1,3 +1,50 @@
+clear
+close all
+clc
+
+J = 0.0103; % Motor inertia
+
+disp('Loading data...');
+load('exp_sorted.mat'); 
+
+% Downsample data if it is too large (e.g., keep 1 out of every 5 points)
+% This prevents tfest/ssest from hanging on massive datasets
+ds_factor = 5; 
+seg_angle = exp_sorted(1:ds_factor:end, 1);
+seg_load  = exp_sorted(1:ds_factor:end, 2);
+raw_time  = exp_sorted(1:ds_factor:end, 3);
+
+% Compute sampling time
+dt_vec   = diff(raw_time);
+valid_dt = dt_vec(dt_vec > 0); 
+Ts       = mean(valid_dt);
+
+disp(['Calculated Sampling Time Ts = ', num2str(Ts), ' s']);
+
+% Zero-mean signals and convert angle to radians
+u = seg_load(:) - mean(seg_load(:));
+y = deg2rad(seg_angle(:) - mean(seg_angle(:)));
+
+% Create System Identification Data Object
+data_id = iddata(y, u, Ts);
+
+disp('Estimating Transfer Function (tfest)...');
+Gest = tfest(data_id, 2, 0);
+disp(Gest);
+
+disp('Estimating State-Space (ssest)...');
+Gss = ssest(data_id, 2);
+disp(Gss);
+
+disp('Generating Comparison Plot...');
+figure('Visible', 'on');
+compare(data_id, Gest, Gss);
+grid on;
+drawnow;
+disp('Done!');
+
+
+
 (* clear;
 clc;
 close all;
