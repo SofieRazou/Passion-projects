@@ -2,48 +2,112 @@ clear
 close all
 clc
 
-J = 0.0103; % Motor inertia
+%% =============================================================
+%                  KNOWN PHYSICAL PARAMETERS
+% =============================================================
+J = 0.0103; % Motor inertia [kg*m^2]
 
-disp('Loading data...');
+%% =============================================================
+%                   LOAD AND PREPARE DATA
+% =============================================================
+if ~exist('exp_sorted.mat', 'file')
+    error('exp_sorted.mat not found! Run the extraction script first.');
+end
+
 load('exp_sorted.mat'); 
 
-% Downsample data if it is too large (e.g., keep 1 out of every 5 points)
-% This prevents tfest/ssest from hanging on massive datasets
-ds_factor = 5; 
-seg_angle = exp_sorted(1:ds_factor:end, 1);
-seg_load  = exp_sorted(1:ds_factor:end, 2);
-raw_time  = exp_sorted(1:ds_factor:end, 3);
+% Identify individual segments based on time resets (where time jumps back to near 0)
+time_vec   = exp_sorted(:, 3);
+seg_breaks = find(diff(time_vec) < 0);
+start_indices = [1; seg_breaks + 1];
+end_indices   = [seg_breaks; length(time_vec)];
 
-% Compute sampling time
-dt_vec   = diff(raw_time);
-valid_dt = dt_vec(dt_vec > 0); 
-Ts       = mean(valid_dt);
+num_total_segments = length(start_indices);
+fprintf('Found %d individual segments to analyze.\n\n', num_total_segments);
 
-disp(['Calculated Sampling Time Ts = ', num2str(Ts), ' s']);
+% Preallocate arrays for summary results
+b_est_all   = zeros(num_total_segments, 1);
+k_est_all   = zeros(num_total_segments, 1);
+fit_tf_all  = zeros(num_total_segments, 1);
+fit_ss_all  = zeros(num_total_segments, 1);
 
-% Zero-mean signals and convert angle to radians
-u = seg_load(:) - mean(seg_load(:));
-y = deg2rad(seg_angle(:) - mean(seg_angle(:)));
+%% =============================================================
+%              LOOP THROUGH EACH EXPERIMENT SEGMENT
+% =============================================================
+for s = 1:num_total_segments
+    % Extract current segment slices
+    idx = start_indices(s):end_indices(s);
+    seg_angle = exp_sorted(idx, 1); % Column 1: Angle (deg)
+    seg_load  = exp_sorted(idx, 2); % Column 2: Measured Torque (Nm)
+    seg_time  = exp_sorted(idx, 3); % Column 3: Time (s)
+    
+    % Compute sample time Ts for this specific segment
+    Ts = mean(diff(seg_time));
+    
+    % Zero-mean signals & convert angle to radians
+    u = seg_load(:) - mean(seg_load(:));
+    y = deg2rad(seg_angle(:) - mean(seg_angle(:)));
+    
+    % Create iddata object for the segment
+    data_id = iddata(y, u, Ts);
+    data_id.InputName  = {'Measured torque'};
+    data_id.OutputName = {'Encoder angle'};
+    data_id.InputUnit  = {'Nm'};
+    data_id.OutputUnit = {'rad'};
+    data_id.ExperimentName = {sprintf('Segment_%d', s)};
+    
+    % ----------------------------------------------------------
+    % 1st ID METHOD: Transfer Function Estimation (2 poles, 0 zeros)
+    % ----------------------------------------------------------
+    Gest = tfest(data_id, 2, 0);
+    
+    % Extract physical parameters: b = a1 * J , k = a0 * J
+    [~, den] = tfdata(Gest, 'v');
+    b_est = den(2) * J;
+    k_est = den(3) * J;
+    
+    % ----------------------------------------------------------
+    % 2nd ID METHOD: State-Space Estimation (2 states)
+    % ----------------------------------------------------------
+    Gss = ssest(data_id, 2);
+    
+    % Calculate fits
+    [~, fit_tf] = compare(data_id, Gest);
+    [~, fit_ss] = compare(data_id, Gss);
+    
+    % Store metrics
+    b_est_all(s)  = b_est;
+    k_est_all(s)  = k_est;
+    fit_tf_all(s) = fit_tf;
+    fit_ss_all(s) = fit_ss;
+    
+    % Plot response for this segment
+    figure('Name', sprintf('Segment %d Fit', s));
+    compare(data_id, Gest, Gss);
+    grid on;
+    title(sprintf('Segment %d: Fit TF = %.1f%%, SS = %.1f%%', s, fit_tf, fit_ss));
+    set(findall(gcf, 'Type', 'Line'), 'LineWidth', 1.5);
+    drawnow;
+end
 
-% Create System Identification Data Object
-data_id = iddata(y, u, Ts);
+%% =============================================================
+%                   PRINT SUMMARY RESULTS
+% =============================================================
+Segment_ID = (1:num_total_segments)';
+SummaryTable = table(Segment_ID, b_est_all, k_est_all, fit_tf_all, fit_ss_all, ...
+    'VariableNames', {'Segment', 'Damping_b_Nms_rad', 'Stiffness_k_Nm_rad', 'TF_Fit_Percent', 'SS_Fit_Percent'});
 
-disp('Estimating Transfer Function (tfest)...');
-Gest = tfest(data_id, 2, 0);
-disp(Gest);
+disp('========================================================================');
+disp('                       SYSTEM IDENTIFICATION RESULTS                   ');
+disp('========================================================================');
+disp(SummaryTable);
 
-disp('Estimating State-Space (ssest)...');
-Gss = ssest(data_id, 2);
-disp(Gss);
-
-disp('Generating Comparison Plot...');
-figure('Visible', 'on');
-compare(data_id, Gest, Gss);
-grid on;
-drawnow;
-disp('Done!');
-
-
+% Overall Averages
+fprintf('\n--- OVERALL AVERAGES ACROSS %d SEGMENTS ---\n', num_total_segments);
+fprintf('Average Damping (b)  : %.4f N*m*s/rad\n', mean(b_est_all));
+fprintf('Average Stiffness (k): %.4f N*m/rad\n', mean(k_est_all));
+fprintf('Average TF Fit       : %.2f%%\n', mean(fit_tf_all));
+fprintf('Average SS Fit       : %.2f%%\n', mean(fit_ss_all));
 
 (* clear;
 clc;
