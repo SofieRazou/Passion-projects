@@ -1,3 +1,11 @@
+
+Error using idParametric/setpar (line 38)
+In the "SETPAR(SYS, TYPE)" command, the value of TYPE must be 'value', 'free', 'bounds' or 'label'.
+
+Error in capt_est_params (line 68)
+    init_sys = setpar(init_sys, 'Min', [0; 0]);
+
+
 clear
 close all
 clc
