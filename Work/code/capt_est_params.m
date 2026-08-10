@@ -106,54 +106,128 @@ fprintf('Average Damping (b)  : %.6f N*m*s/rad\n', mean(b_est_all));
 fprintf('Average Stiffness (k): %.6f N*m/rad\n', mean(k_est_all));
 fprintf('Average Model Fit    : %.2f%%\n', mean(fit_tf_all)); *)
 
-clear; close all; clc;
+clear
+close all
+clc
+
+%% =============================================================
+%                   LOAD AND PREPARE DATA
+% =============================================================
+if ~exist('exp_sorted.mat', 'file')
+    error('exp_sorted.mat not found!');
+end
 
 load('exp_sorted.mat'); 
 
-% Identify segments
+% Identify individual segments based on time resets
 time_vec      = exp_sorted(:, 3);
 seg_breaks    = find(diff(time_vec) < 0);
 start_indices = [1; seg_breaks + 1];
 end_indices   = [seg_breaks; length(time_vec)];
-num_segments  = length(start_indices);
 
-k_all = zeros(num_segments, 1);
-b_all = zeros(num_segments, 1);
+num_total_segments = length(start_indices);
+fprintf('Found %d individual segments to analyze.\n\n', num_total_segments);
 
-for s = 1:num_segments
-    idx = start_indices(s):end_indices(s);
-    
-    seg_angle = deg2rad(exp_sorted(idx, 1)); % rad
-    seg_load  = exp_sorted(idx, 2);          % Nm
-    seg_time  = exp_sorted(idx, 3);          % s
+% Preallocate summary result arrays
+b_est_all  = zeros(num_total_segments, 1);
+k_est_all  = zeros(num_total_segments, 1);
+r2_all     = zeros(num_total_segments, 1);
+
+%% =============================================================
+%              LOOP THROUGH EACH EXPERIMENT SEGMENT
+% =============================================================
+for s = 1:num_total_segments
+    % Extract current segment
+    idx       = start_indices(s):end_indices(s);
+    seg_angle = exp_sorted(idx, 1); % Column 1: Angle (deg)
+    seg_load  = exp_sorted(idx, 2); % Column 2: Measured Torque (Nm)
+    seg_time  = exp_sorted(idx, 3); % Column 3: Time (s)
     
     Ts = mean(diff(seg_time));
     
     % Zero-mean signals
-    tau   = detrend(seg_load);
-    theta = detrend(seg_angle);
+    tau   = detrend(seg_load(:));
+    theta = detrend(deg2rad(seg_angle(:)));
     
-    % Filtered velocity (theta_dot) to avoid noise spikes
-    [b_flt, a_flt] = butter(2, 10 * (2 * Ts), 'low'); % 10 Hz cutoff
+    % ----------------------------------------------------------
+    % CHECK SIGN CONVENTION (Phase/Direction Alignment)
+    % ----------------------------------------------------------
+    % Torque and angle MUST be positively correlated (torque pushes in + direction)
+    corr_val = corr(tau, theta);
+    if corr_val < 0
+        % Invert angle to align sign convention
+        theta = -theta;
+    end
+    
+    % ----------------------------------------------------------
+    % LOW-PASS FILTER BOTH SIGNALS EQUALLY (Zero Phase Lag)
+    % ----------------------------------------------------------
+    fc = 15; % Cutoff frequency [Hz]
+    [b_flt, a_flt] = butter(2, fc * (2 * Ts), 'low');
+    
+    tau_flt   = filtfilt(b_flt, a_flt, tau);
     theta_flt = filtfilt(b_flt, a_flt, theta);
-    theta_dot = gradient(theta_flt) / Ts;
     
-    % Linear Regression: tau = k * theta + b * theta_dot
-    % Matrix form: tau = [theta, theta_dot] * [k; b]
-    X = [theta, theta_dot];
-    params = X \ tau; 
+    % Compute velocity (theta_dot)
+    dtheta = gradient(theta_flt) / Ts;
     
-    k_all(s) = params(1); % Stiffness [Nm/rad]
-    b_all(s) = params(2); % Damping [Nms/rad]
+    % ----------------------------------------------------------
+    % NON-NEGATIVE LEAST SQUARES (lsqnonneg)
+    % Model: tau = k * theta + b * theta_dot
+    % Form: A * x = B  =>  [theta, theta_dot] * [k; b] = tau
+    % ----------------------------------------------------------
+    X_reg = [theta_flt, dtheta];
     
-    % Reconstructed torque fit
-    tau_pred = X * params;
-    fit_R2 = 1 - (sum((tau - tau_pred).^2) / sum((tau - mean(tau)).^2));
+    % Constrains x = [k; b] >= 0 strictly
+    params = lsqnonneg(X_reg, tau_flt);
     
-    fprintf('Segment %d: Stiffness k = %.2f Nm/rad | Damping b = %.4f Nms/rad | R^2 = %.2f%%\n', ...
-        s, k_all(s), b_all(s), fit_R2 * 100);
+    k_est = params(1); % Stiffness [Nm/rad]
+    b_est = params(2); % Damping [Nms/rad]
+    
+    % Predict torque and calculate Goodness of Fit (R^2)
+    tau_pred = X_reg * params;
+    SS_res = sum((tau_flt - tau_pred).^2);
+    SS_tot = sum((tau_flt - mean(tau_flt)).^2);
+    R2 = (1 - (SS_res / SS_tot)) * 100;
+    
+    % Store metrics
+    k_est_all(s) = k_est;
+    b_est_all(s) = b_est;
+    r2_all(s)    = R2;
+    
+    % Plot response for current segment
+    figure('Name', sprintf('Segment %d Alignment & Fit', s));
+    subplot(2,1,1);
+    plot(seg_time, tau_flt, 'b', 'LineWidth', 1.5); hold on;
+    plot(seg_time, tau_pred, 'r--', 'LineWidth', 1.5);
+    grid on;
+    ylabel('Torque [Nm]');
+    legend('Measured Torque', 'Model Prediction');
+    title(sprintf('Segment %d Fit: k = %.2f Nm/rad, b = %.4f Nms/rad (R^2 = %.1f%%)', ...
+        s, k_est, b_est, R2));
+        
+    subplot(2,1,2);
+    plot(seg_time, theta_flt, 'k', 'LineWidth', 1.5);
+    grid on;
+    xlabel('Time [s]');
+    ylabel('Angle [rad]');
+    drawnow;
 end
 
-fprintf('\n=== OVERALL RESULTS ===\n');
-fprintf('Mean Stiffness (k) : %.2f Nm/rad\n', mean(k_all));
-fprintf('Mean Damping (b)   : %.4f Nms/rad\n', mean(b_all));
+%% =============================================================
+%                   PRINT SUMMARY RESULTS
+% =============================================================
+Segment_ID   = (1:num_total_segments)';
+SummaryTable = table(Segment_ID, k_est_all, b_est_all, r2_all, ...
+    'VariableNames', {'Segment', 'Stiffness_k_Nm_rad', 'Damping_b_Nms_rad', 'R2_Fit_Percent'});
+
+disp('========================================================================');
+disp('          PHYSICALLY BOUNDED (NON-NEGATIVE) ESTIMATION RESULTS          ');
+disp('========================================================================');
+disp(SummaryTable);
+
+% Overall Averages
+fprintf('\n--- OVERALL AVERAGES ACROSS %d SEGMENTS ---\n', num_total_segments);
+fprintf('Average Stiffness (k): %.4f N*m/rad\n', mean(k_est_all));
+fprintf('Average Damping (b)  : %.6f N*m*s/rad\n', mean(b_est_all));
+fprintf('Average Model Fit R^2: %.2f%%\n', mean(r2_all));
