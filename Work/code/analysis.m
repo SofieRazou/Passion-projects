@@ -9,6 +9,8 @@ id = ['100';'116';'098';'097';'095';'090';'085';'093';'092'];
 
 % Initialize matrix to accumulate sorted data across experiments/segments
 exp_sorted = [];
+last_experiment_id = '';
+last_seg_num = 1;
 
 %% Loop through experiments
 for i = 1:size(id,1)
@@ -61,19 +63,25 @@ for i = 1:size(id,1)
     subplot(3,1,2)
     plot(time, angle, 'LineWidth', 1)
     hold on
-    xline(t_change, '--k') % FIXED FOR R2020b
+    for tc = t_change
+        xline(tc, '--k');
+    end
     ylabel("angle (deg)")
     
     subplot(3,1,1)
     plot(time, torque_sent, 'Color', [.4 .4 .4], 'LineWidth', 1)
     hold on
-    xline(t_change, '--k') % FIXED FOR R2020b
+    for tc = t_change
+        xline(tc, '--k');
+    end
     ylabel("commanded torque (Nm)")
     
     subplot(3,1,3)
     plot(time, filtered_torque_load - load_preload + torque_preload, 'Color', [.8 .3 .2], 'LineWidth', 1)
     hold on
-    xline(t_change, '--k') % FIXED FOR R2020b
+    for tc = t_change
+        xline(tc, '--k');
+    end
     xlabel("time (s)")
     ylabel("load cell torque (Nm)")
     
@@ -147,6 +155,10 @@ for i = 1:size(id,1)
         current_segment_data = [seg_angle(:), seg_load(:), seg_time(:)];
         exp_sorted = [exp_sorted; current_segment_data];
         
+        % Save latest experiment metadata
+        last_experiment_id = experiment_id;
+        last_seg_num = seg;
+        
         subplot(num_segments, 1, seg)
         plot(seg_time - seg_time(1), seg_sent + torque_preload, 'Color', [.4 .4 .4], 'LineWidth', 1)
         hold on
@@ -161,9 +173,12 @@ for i = 1:size(id,1)
     end
 end
 
-%% Save to exp_sorted.mat
-save('exp_sorted.mat', 'exp_sorted');
-disp('Saved exp_sorted.mat successfully!');
+%% Save data and variables required by the system identification script
+experiment_id = last_experiment_id;
+seg = last_seg_num;
+
+save('exp_sorted.mat', 'exp_sorted', 'experiment_id', 'seg');
+disp('Saved exp_sorted.mat with parameters successfully!');
 
 %% Subfunction to detect 5 periods
 function [segment, t_segment, idx_start, idx_end] = extract_5_periods(t, signal)
