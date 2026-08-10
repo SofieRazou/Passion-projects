@@ -1,3 +1,13 @@
+Error using idgrey (line 372)
+The ODE function "motor_ode" could not be evaluated successfully using the given set of parameters, sample
+time and optional arguments. The error message generated during the evaluation was:
+Undefined function 'motor_ode' for input arguments of type 'double'.
+
+Error in A1_analyze_expDistance (line 287)
+        init_sys = idgrey('motor_ode', p_init, 'c', J_known);
+ 
+
+
 clear
 close all
 clc
