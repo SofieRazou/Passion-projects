@@ -2,8 +2,9 @@ clear
 close all
 clc
 
-% =============================================================
-% LOAD DATA
+
+%% =============================================================
+%                      LOAD DATA
 % =============================================================
 
 load('exp_distance.mat')
@@ -12,7 +13,19 @@ id = ['100';'116';'098';'097';'095';'090';'085';'093';'092'];
 
 
 %% =============================================================
-% LOOP THROUGH EXPERIMENTS
+%              INITIALIZE IDENTIFICATION STORAGE
+% =============================================================
+
+Gest_all = {};
+Gss_all  = {};
+
+fit_tf_all = [];
+fit_ss_all = [];
+
+
+
+%% =============================================================
+%                  LOOP THROUGH EXPERIMENTS
 % =============================================================
 
 for i = 1:length(id)
@@ -24,17 +37,23 @@ for i = 1:length(id)
 
     % t_change contains the time instants separating the segments
 
+
+    %% =========================================================
+    %                  BASIC SIGNAL EXTRACTION
+    % ==========================================================
+
     time = data(:,1);
 
-    % Recorded encoder position
-    angle = data(:,4);      % degrees
+    % Encoder position
+    angle = data(:,4);       % degrees
 
-    % force, torque_sent, iA_sent, iB_sent
+    % Default channel indices:
+    % [force, torque_sent, iA_sent, iB_sent]
     c_idx = [5 7 9 8];
 
 
     %% =========================================================
-    % CHANNEL / GAIN SELECTION
+    %                  CHANNEL / GAIN SELECTION
     % ==========================================================
 
     if str2num(experiment_id) < 92
@@ -61,7 +80,7 @@ for i = 1:length(id)
 
 
     %% =========================================================
-    % EXTRACT SIGNALS
+    %                  EXTRACT RAW SIGNALS
     % ==========================================================
 
     force = data(:,c_idx(1));
@@ -75,7 +94,7 @@ for i = 1:length(id)
 
 
     %% =========================================================
-    % FILTERING
+    %                  FILTERING
     % ==========================================================
 
     fs = 1/mean(diff(time));
@@ -86,16 +105,17 @@ for i = 1:length(id)
 
 
     %% =========================================================
-    % LOAD CELL FORCE -> TORQUE
+    %              LOAD CELL FORCE -> TORQUE
     % ==========================================================
 
     torque_load = force*0.0846;
 
-    filtered_torque_load = filtfilt(b,a,torque_load);
+    filtered_torque_load = filtfilt(...
+        b,a,torque_load);
 
 
     %% =========================================================
-    % PRELOAD
+    %                    PRELOAD
     % ==========================================================
 
     torque_preload = mean(torque_sent);
@@ -105,15 +125,20 @@ for i = 1:length(id)
     center(i) = mean(angle);
 
 
+
     %% =========================================================
-    % FIGURE 1: COMPLETE EXPERIMENT
+    %              FIGURE 1: COMPLETE EXPERIMENT
+    %
+    % This is ONLY DATA PROCESSING / VISUALIZATION.
+    % No system identification is performed here.
     % ==========================================================
 
     figure()
 
     subplot(3,1,1)
 
-    plot(time,...
+    plot(...
+        time,...
         torque_sent,...
         'Color',[.4 .4 .4],...
         'LineWidth',1)
@@ -130,7 +155,8 @@ for i = 1:length(id)
 
     subplot(3,1,2)
 
-    plot(time,...
+    plot(...
+        time,...
         angle,...
         'LineWidth',1)
 
@@ -145,7 +171,8 @@ for i = 1:length(id)
 
     subplot(3,1,3)
 
-    plot(time,...
+    plot(...
+        time,...
         filtered_torque_load-load_preload+torque_preload,...
         'Color',[.8 .3 .2],...
         'LineWidth',1)
@@ -160,8 +187,9 @@ for i = 1:length(id)
     ylabel("Measured torque (Nm)")
 
 
+
     %% =========================================================
-    % FIND SEGMENT INDICES
+    %                  FIND SEGMENT INDICES
     % ==========================================================
 
     event_idx = zeros(size(t_change));
@@ -176,15 +204,18 @@ for i = 1:length(id)
     num_segments = length(event_idx)-1;
 
 
+
     %% =========================================================
-    % FIGURE 2: TORQUE TRACKING SEGMENTS
+    %              FIGURE 2: TORQUE TRACKING
+    %
+    % Again, this section is ONLY processing/analysis.
     % ==========================================================
 
     figure()
 
 
     %% =========================================================
-    % LOOP THROUGH SEGMENTS
+    %                  LOOP THROUGH SEGMENTS
     % ==========================================================
 
     for seg = 1:num_segments
@@ -204,6 +235,7 @@ for i = 1:length(id)
             - torque_preload;
 
 
+
         %% -----------------------------------------------------
         % Extract 5 complete torque periods
         % ------------------------------------------------------
@@ -217,8 +249,11 @@ for i = 1:length(id)
             seg_torque_sent);
 
 
+
         %% -----------------------------------------------------
         % Extract measured physical torque
+        %
+        % THIS WILL BE THE IDENTIFICATION INPUT
         % ------------------------------------------------------
 
         seg_load = ...
@@ -228,8 +263,11 @@ for i = 1:length(id)
             - load_preload;
 
 
+
         %% -----------------------------------------------------
-        % Extract corresponding encoder angle
+        % Extract encoder angle
+        %
+        % THIS WILL BE THE IDENTIFICATION OUTPUT
         % ------------------------------------------------------
 
         seg_angle_deg = ...
@@ -238,37 +276,42 @@ for i = 1:length(id)
             i_start0+i_end);
 
 
-        % Convert degrees -> radians
+
+        %% -----------------------------------------------------
+        % Convert angle from degrees -> radians
+        % ------------------------------------------------------
+
         seg_angle = deg2rad(seg_angle_deg);
 
 
-        %% -----------------------------------------------------
-        % Center angle around zero
-        % ------------------------------------------------------
 
-        % For mechanical identification, remove the mean position
-        % so that the stiffness term represents displacement from
-        % the equilibrium position.
+        %% -----------------------------------------------------
+        % Remove equilibrium position
+        % ------------------------------------------------------
 
         seg_angle = ...
             seg_angle - mean(seg_angle);
 
 
+
         %% =====================================================
-        % ANGLE ANALYSIS
+        %                  ANGLE ANALYSIS
         % ======================================================
 
         c_angle(i,seg) = mean(seg_angle_deg);
 
 
-        [pks_max,~] = findpeaks(seg_angle_deg);
+        [pks_max,~] = ...
+            findpeaks(seg_angle_deg);
 
-        [pks_min,~] = findpeaks(-seg_angle_deg);
+        [pks_min,~] = ...
+            findpeaks(-seg_angle_deg);
 
         pks_min = -pks_min;
 
 
-        if length(pks_max) >= 5 && length(pks_min) >= 5
+        if length(pks_max) >= 5 && ...
+           length(pks_min) >= 5
 
             pks_max = maxk(pks_max,5);
             pks_min = mink(pks_min,5);
@@ -283,39 +326,47 @@ for i = 1:length(id)
         end
 
 
+
         %% =====================================================
-        % TORQUE TRACKING ANALYSIS
+        %                  TORQUE TRACKING
         % ======================================================
 
         dTorque(i,seg) = ...
             max(seg_sent)-min(seg_sent);
 
 
-        %% -----------------------------------------------------
-        % Correlation
-        % ------------------------------------------------------
 
-        [R,P] = corrcoef(seg_sent,seg_load);
+        %% =====================================================
+        %                  CORRELATION
+        % ======================================================
+
+        [R,P] = corrcoef(...
+            seg_sent,...
+            seg_load);
 
         r(i,seg) = R(1,2);
+
         p(i,seg) = P(1,2);
 
 
-        %% -----------------------------------------------------
-        % MAE
-        % ------------------------------------------------------
+
+        %% =====================================================
+        %                     MAE
+        % ======================================================
 
         rm(i,seg) = ...
-            mean(abs(seg_sent-seg_load));
+            mean(abs(...
+            seg_sent-seg_load));
 
         rm_perc(i,seg) = ...
             rm(i,seg) / ...
             (max(seg_sent)-min(seg_sent));
 
 
-        %% -----------------------------------------------------
-        % R-squared
-        % ------------------------------------------------------
+
+        %% =====================================================
+        %                     R-SQUARED
+        % ======================================================
 
         SS_res = ...
             sum((seg_sent-seg_load).^2);
@@ -327,8 +378,9 @@ for i = 1:length(id)
             1-SS_res/SS_tot;
 
 
+
         %% =====================================================
-        % PLATEAU / EDGE ANALYSIS
+        %                PLATEAU / EDGE ANALYSIS
         % ======================================================
 
         dx = gradient(seg_sent);
@@ -341,7 +393,7 @@ for i = 1:length(id)
         is_edge = ~is_plateau;
 
 
-        %% Plateau gain
+        % Plateau gain
 
         gain_plateau(i,seg) = ...
             sum(seg_load(is_plateau).* ...
@@ -349,7 +401,7 @@ for i = 1:length(id)
             sum(seg_sent(is_plateau).^2);
 
 
-        %% Plateau RMSE
+        % Plateau RMSE
 
         rmse_plateau(i,seg) = ...
             sqrt(mean(...
@@ -357,7 +409,7 @@ for i = 1:length(id)
              seg_sent(is_plateau)).^2));
 
 
-        %% Edge RMSE
+        % Edge RMSE
 
         rmse_edge(i,seg) = ...
             sqrt(mean(...
@@ -365,8 +417,9 @@ for i = 1:length(id)
              seg_load(is_edge)).^2));
 
 
+
         %% =====================================================
-        % PLOT TORQUE TRACKING
+        %              PLOT TORQUE TRACKING
         % ======================================================
 
         subplot(num_segments,1,seg)
@@ -415,41 +468,69 @@ for i = 1:length(id)
         end
 
 
+
         %% =====================================================
-        % SYSTEM IDENTIFICATION
+        % ======================================================
+        %
+        %              SYSTEM IDENTIFICATION
+        %
+        % ======================================================
         %
         % INPUT:
-        %   measured physical torque = seg_load
+        %     measured load-cell torque
+        %
+        %     u(t) = seg_load
         %
         % OUTPUT:
-        %   encoder angle = seg_angle
+        %     encoder angle
+        %
+        %     y(t) = seg_angle
         %
         % Therefore:
         %
-        %       torque -> mechanical system -> angle
+        %        Torque  --->  Mechanical system  --->  Angle
         %
-        %       G(s) = Theta(s) / Torque(s)
+        %        G(s) = Theta(s) / Torque(s)
+        %
+        % ======================================================
+        % ======================================================
+
+
+        %% =====================================================
+        %                 PREPARE ID DATA
         % ======================================================
 
         Ts = mean(diff(seg_time));
 
-
-        % Make sure input and output are column vectors
         u = seg_load(:);
         y = seg_angle(:);
 
 
-        %% Remove DC component from torque
-
+        % Remove mean torque
         u = u - mean(u);
 
 
-        %% Create identification data
+        % Create System Identification Toolbox data object
+        data_id = iddata(...
+            y,...
+            u,...
+            Ts);
 
-        data_id = iddata(y,u,Ts);
 
+        %% =====================================================
+        %          IDENTIFICATION METHOD 1:
+        %               TRANSFER FUNCTION
+        % ======================================================
 
-        %% Estimate second-order transfer function
+        % Estimate a second-order transfer function.
+        %
+        % Expected mechanical structure:
+        %
+        %             1
+        % G(s) = -----------
+        %        Js^2+bs+k
+        %
+        % tfest estimates a generic second-order model.
 
         Gest = tfest(...
             data_id,...
@@ -458,67 +539,210 @@ for i = 1:length(id)
             NaN);
 
 
-        %% Store identified model
+        % Store model
 
         Gest_all{i,seg} = Gest;
 
 
         %% =====================================================
-        % IDENTIFICATION FIGURE
+        %          IDENTIFICATION METHOD 2:
+        %                 STATE SPACE
+        % ======================================================
+
+        % A second-order state-space model is used:
+        %
+        % x1 = theta
+        % x2 = theta_dot
+        %
+        % x_dot = A*x + B*u
+        % y     = C*x + D*u
+        %
+        % For the physical mechanical system:
+        %
+        %       J*theta_ddot + b*theta_dot + k*theta = tau
+        %
+        % the state-space representation is:
+        %
+        % [theta_dot ]   [ 0       1 ] [theta    ]
+        % [theta_ddot] = [-k/J   -b/J] [theta_dot]
+        %
+        %                    [ 0 ]
+        %              +     [1/J] tau
+        %
+        % and:
+        %
+        % y = [1 0] x
+        %
+        % Here ssest first estimates a generic state-space model.
+
+        Gss = ssest(...
+            data_id,...
+            2);
+
+
+        % Convert state-space model to transfer function
+        % so that it can be directly compared with Gest.
+
+        Gss_tf = tf(Gss);
+
+
+        % Store models
+
+        Gss_all{i,seg} = Gss;
+
+
+
+        %% =====================================================
+        %             COMPARE TRANSFER FUNCTION
+        %             AND STATE-SPACE MODELS
         % ======================================================
 
         figure()
 
-        compare(data_id,Gest)
+        compare(...
+            data_id,...
+            Gest,...
+            Gss);
 
         grid on
 
         title([...
-            'System Identification - Experiment ',...
-            experiment_id,...
-            ', Segment ',...
-            num2str(seg)])
+            'TF vs State-Space Identification - ',...
+            'Experiment ',experiment_id,...
+            ', Segment ',num2str(seg)])
+
 
         set(...
             findall(gcf,'Type','Line'),...
             'LineWidth',2)
 
 
+        legend(...
+            'Measured data',...
+            'Transfer function',...
+            'State-space',...
+            'Location','best')
+
+
+
         %% =====================================================
-        % DISPLAY IDENTIFIED MODEL
+        %                 MODEL FIT VALUES
+        % ======================================================
+
+        % Calculate fit percentages separately.
+
+        [~,fit_tf] = compare(...
+            data_id,...
+            Gest);
+
+        [~,fit_ss] = compare(...
+            data_id,...
+            Gss);
+
+
+        fit_tf_all(i,seg) = fit_tf;
+
+        fit_ss_all(i,seg) = fit_ss;
+
+
+
+        %% =====================================================
+        %                 DISPLAY RESULTS
         % ======================================================
 
         disp(' ')
-        disp('==============================================')
+        disp('======================================================')
         disp(['Experiment: ',experiment_id])
-        disp(['Segment: ',num2str(seg)])
+        disp(['Segment:    ',num2str(seg)])
+        disp('======================================================')
+
+        disp(' ')
+        disp('IDENTIFICATION DATA:')
         disp('Input  = measured load-cell torque [Nm]')
         disp('Output = encoder angle [rad]')
-        disp('Identified transfer function:')
+
+        disp(' ')
+        disp('------------------------------------------------------')
+        disp('TRANSFER FUNCTION MODEL')
+        disp('------------------------------------------------------')
+
         disp(Gest)
-        disp('==============================================')
+
+        disp(['Fit = ',num2str(fit_tf),' %'])
+
+
+        disp(' ')
+        disp('------------------------------------------------------')
+        disp('STATE-SPACE MODEL')
+        disp('------------------------------------------------------')
+
+        disp(Gss)
+
+        disp(['Fit = ',num2str(fit_ss),' %'])
+
+
+        disp(' ')
+        disp('STATE-SPACE MODEL CONVERTED TO TRANSFER FUNCTION')
+        disp('------------------------------------------------------')
+
+        disp(Gss_tf)
+
+
+
+        %% =====================================================
+        %          POLES / NATURAL DYNAMICS
+        % ======================================================
+
+        disp(' ')
+        disp('POLES OF TRANSFER FUNCTION MODEL:')
+
+        disp(pole(Gest))
+
+
+        disp(' ')
+        disp('POLES OF STATE-SPACE MODEL:')
+
+        disp(pole(Gss))
+
 
 
     end
-    
-%New fit 
-Gss = ssest(data_id, 1:10);
-Gest_new = tf(Gss);
-%Obtain model comparison 2
-opt = compareOptions;
-opt.InitialCondition = 'z';
-figure;
-compare(data_id,Gest,opt);
-grid on;
-set(findall(gca, 'Type', 'Line'), 'LineWidth', 4');
-
-
 
 end
 
 
+
 %% =============================================================
-% FUNCTION TO DETECT 5 PERIODS
+%              SUMMARY OF IDENTIFICATION RESULTS
+% =============================================================
+
+disp(' ')
+disp('======================================================')
+disp('              IDENTIFICATION SUMMARY')
+disp('======================================================')
+
+
+for i = 1:length(id)
+
+    for seg = 1:num_segments
+
+        disp([...
+            'Experiment ',id(i,:),...
+            ', Segment ',num2str(seg),...
+            ': TF fit = ',...
+            num2str(fit_tf_all(i,seg)),...
+            ' %, SS fit = ',...
+            num2str(fit_ss_all(i,seg)),...
+            ' %'])
+
+    end
+
+end
+
+
+
+%% =============================================================
+%                 FUNCTION: EXTRACT 5 PERIODS
 % =============================================================
 
 function [segment,...
@@ -528,24 +752,32 @@ function [segment,...
           extract_5_periods(t,signal)
 
 
+% -------------------------------------------------------------
 % Normalize signal
+% -------------------------------------------------------------
 
 sig_norm = ...
     (signal-min(signal)) / ...
     (max(signal)-min(signal));
 
 
+% -------------------------------------------------------------
 % Sampling time
+% -------------------------------------------------------------
 
 dt = mean(diff(t));
 
 
+% -------------------------------------------------------------
 % Derivative
+% -------------------------------------------------------------
 
 dsig = diff(sig_norm)/dt;
 
 
+% -------------------------------------------------------------
 % Detect rising edges
+% -------------------------------------------------------------
 
 sorted_dsig = ...
     sort(dsig(5:end),'descend');
@@ -569,13 +801,17 @@ is_rising = ...
     dsig > rise_thresh;
 
 
+% -------------------------------------------------------------
 % Find starts of rising edges
+% -------------------------------------------------------------
 
 rising_starts = ...
     find(diff([0;is_rising(:)]) == 1);
 
 
+% -------------------------------------------------------------
 % Check number of detected periods
+% -------------------------------------------------------------
 
 if length(rising_starts) < 7
 
@@ -587,7 +823,9 @@ if length(rising_starts) < 7
 end
 
 
+% -------------------------------------------------------------
 % Extract periods 2 -> 6
+% -------------------------------------------------------------
 
 idx_start = rising_starts(2);
 
