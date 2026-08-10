@@ -1,4 +1,3 @@
-```matlab
 clear
 close all
 clc
@@ -501,6 +500,19 @@ for i = 1:length(id)
 
 
     end
+    
+%New fit 
+Gss = ssest(data_id, 1:10);
+Gest_new = tf(Gss);
+%Obtain model comparison 2
+opt = compareOptions;
+opt.InitialCondition = 'z';
+figure;
+compare(data_id,Gest,opt);
+grid on;
+set(findall(gca, 'Type', 'Line'), 'LineWidth', 4');
+
+
 
 end
 
@@ -589,7 +601,7 @@ t_segment = ...
     t(idx_start:idx_end);
 
 end
-```
+
 
 
 
