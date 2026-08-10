@@ -12,20 +12,29 @@ load('exp_distance.mat')
 
 id = ['100';'116';'098';'097';'095';'090';'085';'093';'092'];
 
+num_experiments = length(id);
+
 
 %% =============================================================
 %              INITIALIZE IDENTIFICATION STORAGE
 % =============================================================
 
-% One structure for each experiment
 results = struct();
 
-% Keep model objects separately if desired
+% Individual identified models
 Gest_all = {};
 Gss_all  = {};
 
-% Number of experiments
-num_experiments = length(id);
+% Models that will actually be merged
+TF_models_for_merge = {};
+SS_models_for_merge = {};
+
+% Identification data sets
+IDdata_all = {};
+
+% Fit values
+fit_tf_all = [];
+fit_ss_all = [];
 
 
 %% =============================================================
@@ -42,14 +51,14 @@ for i = 1:num_experiments
 
     %% =========================================================
     %                  BASIC SIGNAL EXTRACTION
-    % ==========================================================
+    % =========================================================
 
     time = data(:,1);
 
     % Encoder position
     angle = data(:,4);       % degrees
 
-    % Default channel indices:
+    % Default:
     % [force, torque_sent, iA_sent, iB_sent]
     c_idx = [5 7 9 8];
 
@@ -58,16 +67,18 @@ for i = 1:num_experiments
     %                  CHANNEL / GAIN SELECTION
     % ==========================================================
 
-    if str2num(experiment_id) < 92
+    experiment_number = str2double(experiment_id);
+
+    if experiment_number < 92
 
         g = 1;
 
-    elseif str2num(experiment_id) < 100
+    elseif experiment_number < 100
 
         c_idx = [6 8 10 9];
         g = 4;
 
-    elseif str2num(experiment_id) < 110
+    elseif experiment_number < 110
 
         g = 4;
 
@@ -113,7 +124,8 @@ for i = 1:num_experiments
     torque_load = force*0.0846;
 
     filtered_torque_load = filtfilt(...
-        b,a,torque_load);
+        b,a,...
+        torque_load);
 
 
     %% =========================================================
@@ -282,7 +294,7 @@ for i = 1:num_experiments
 
 
         %% -----------------------------------------------------
-        % Convert degrees -> radians
+        % Convert angle degrees -> radians
         % ------------------------------------------------------
 
         seg_angle = deg2rad(seg_angle_deg);
@@ -301,6 +313,7 @@ for i = 1:num_experiments
         % ======================================================
 
         c_angle(i,seg) = mean(seg_angle_deg);
+
 
         [pks_max,~] = ...
             findpeaks(seg_angle_deg);
@@ -352,7 +365,8 @@ for i = 1:num_experiments
         % ======================================================
 
         rm(i,seg) = ...
-            mean(abs(seg_sent-seg_load));
+            mean(abs(...
+            seg_sent-seg_load));
 
         rm_perc(i,seg) = ...
             rm(i,seg) / ...
@@ -387,17 +401,23 @@ for i = 1:num_experiments
         is_edge = ~is_plateau;
 
 
+        % Plateau gain
+
         gain_plateau(i,seg) = ...
             sum(seg_load(is_plateau).* ...
                 seg_sent(is_plateau)) / ...
             sum(seg_sent(is_plateau).^2);
 
 
+        % Plateau RMSE
+
         rmse_plateau(i,seg) = ...
             sqrt(mean(...
             (seg_load(is_plateau)- ...
              seg_sent(is_plateau)).^2));
 
+
+        % Edge RMSE
 
         rmse_edge(i,seg) = ...
             sqrt(mean(...
@@ -432,15 +452,9 @@ for i = 1:num_experiments
             seg_time(end)-seg_time(1)])
 
 
-        if seg == 3
+        if seg == num_segments
 
             xlabel("Time (s)")
-
-            title([...
-                'Experiment ',experiment_id,...
-                ' - center: ',...
-                num2str(mean(c_angle(i,:))),...
-                ' deg'])
 
         end
 
@@ -463,7 +477,7 @@ for i = 1:num_experiments
         % ======================================================
         %
         % INPUT:
-        %     measured load-cell torque
+        %     measured physical torque
         %
         %     u(t) = seg_load
         %
@@ -474,11 +488,10 @@ for i = 1:num_experiments
         %
         % Therefore:
         %
-        %        Torque ---> Mechanical system ---> Angle
+        %       Torque ---> CAPT motor ---> Angle
         %
-        %        G(s) = Theta(s) / Torque(s)
+        %       G(s) = Theta(s) / Torque(s)
         %
-        % ======================================================
         % ======================================================
 
 
@@ -491,20 +504,38 @@ for i = 1:num_experiments
         u = seg_load(:);
         y = seg_angle(:);
 
-        % Remove mean torque
+
+        % Remove DC component from input
+
         u = u - mean(u);
 
-        % Identification data
+
+        % Create identification data
+
         data_id = iddata(...
             y,...
             u,...
             Ts);
 
 
+        % Give the signals meaningful names
+
+        data_id.InputName = {'Measured torque'};
+        data_id.OutputName = {'Encoder angle'};
+
+        data_id.InputUnit = {'Nm'};
+        data_id.OutputUnit = {'rad'};
+
+        data_id.ExperimentName = {...
+            ['Exp',experiment_id,'_Seg',num2str(seg)]};
+
+
         %% =====================================================
         %          IDENTIFICATION METHOD 1:
         %               TRANSFER FUNCTION
         % ======================================================
+
+        % Second-order transfer function
 
         Gest = tfest(...
             data_id,...
@@ -518,12 +549,15 @@ for i = 1:num_experiments
         %                 STATE SPACE
         % ======================================================
 
+        % Two-state state-space model
+
         Gss = ssest(...
             data_id,...
             2);
 
 
-        % Convert SS model to transfer function
+        % Convert SS model to TF
+
         Gss_tf = tf(Gss);
 
 
@@ -544,38 +578,32 @@ for i = 1:num_experiments
         %                 EXTRACT TF PARAMETERS
         % ======================================================
 
-        % Transfer function:
-        %
-        %       b0*s + b1
-        % G = ---------------------
-        %       s^2 + a1*s + a0
-        %
-
-        [num_tf,den_tf] = tfdata(...
-            Gest,...
-            'v');
+        [num_tf,den_tf] = ...
+            tfdata(Gest,'v');
 
         num_tf = num_tf(:).';
         den_tf = den_tf(:).';
 
 
-        % Pad numerator if necessary
-        if length(num_tf) < 2
-            num_tf = [0 num_tf];
-        end
+        % Make denominator second order if possible
 
-        % Normalized second-order denominator
         if length(den_tf) == 3
 
             a1 = den_tf(2);
             a0 = den_tf(3);
 
-            wn_tf = sqrt(a0);
+            wn_tf = sqrt(abs(a0));
 
-            zeta_tf = ...
-                a1/(2*wn_tf);
+            if wn_tf > 0
 
-            poles_tf = pole(Gest);
+                zeta_tf = ...
+                    a1/(2*wn_tf);
+
+            else
+
+                zeta_tf = NaN;
+
+            end
 
         else
 
@@ -583,53 +611,57 @@ for i = 1:num_experiments
             a0 = NaN;
             wn_tf = NaN;
             zeta_tf = NaN;
-            poles_tf = pole(Gest);
 
         end
+
+
+        poles_tf = pole(Gest);
 
 
         %% =====================================================
         %          PHYSICAL PARAMETERS FROM TF
         % ======================================================
 
-        % For:
+        % Mechanical model:
         %
-        %       J*s^2 + b*s + k
-        %
-        % G(s) = 1/(J*s^2+b*s+k)
-        %
-        % normalized form:
-        %
-        %       1
-        % G(s) = ----------------
-        %        s^2 + b/J*s+k/J
-        %
+        % J*theta_ddot + b*theta_dot + k*theta = tau
         %
         % Therefore:
         %
-        %       k/J = a0
+        %        Theta(s)          1
+        % G(s) = -------- = -----------------
+        %        Tau(s)      J*s^2+b*s+k
+        %
+        % Normalized:
+        %
+        %              1/J
+        % G(s) = -------------------
+        %        s^2+(b/J)s+(k/J)
+        %
+        % Thus:
+        %
         %       b/J = a1
+        %       k/J = a0
         %
-        % and, if J is known:
+        % If J is known:
         %
-        %       k = J*a0
         %       b = J*a1
-        %
-        % -----------------------------------------------------
+        %       k = J*a0
 
-        % Put your known inertia here
+
         J_known = NaN;
+
 
         if ~isnan(J_known) && ...
            length(den_tf) == 3
 
-            k_tf = J_known*a0;
             b_tf = J_known*a1;
+            k_tf = J_known*a0;
 
         else
 
-            k_tf = NaN;
             b_tf = NaN;
+            k_tf = NaN;
 
         end
 
@@ -643,21 +675,28 @@ for i = 1:num_experiments
         C = Gss.C;
         D = Gss.D;
 
-
         poles_ss = pole(Gss);
 
 
         %% =====================================================
-        %      SS NATURAL FREQUENCY AND DAMPING
+        %          SS NATURAL FREQUENCY / DAMPING
         % ======================================================
 
         if length(poles_ss) == 2
 
-            wn_ss = sqrt(abs(poles_ss(1)*poles_ss(2)));
+            wn_ss = sqrt(...
+                abs(poles_ss(1)*poles_ss(2)));
 
-            zeta_ss = ...
-                -real(sum(poles_ss)) / ...
-                (2*wn_ss);
+            if wn_ss > 0
+
+                zeta_ss = ...
+                    -real(sum(poles_ss))/(2*wn_ss);
+
+            else
+
+                zeta_ss = NaN;
+
+            end
 
         else
 
@@ -668,10 +707,8 @@ for i = 1:num_experiments
 
 
         %% =====================================================
-        %              STORE EVERYTHING
+        %                 STORE RESULTS
         % ======================================================
-
-        % General segment information
 
         results(i).segment(seg).segment_number = seg;
 
@@ -687,7 +724,9 @@ for i = 1:num_experiments
             d_angle(i,seg);
 
 
-        % Torque tracking results
+        %% -----------------------------------------------------
+        % Torque tracking
+        % ------------------------------------------------------
 
         results(i).segment(seg).tracking.correlation = ...
             r(i,seg);
@@ -715,18 +754,19 @@ for i = 1:num_experiments
 
 
         %% -----------------------------------------------------
-        % Store identification data
+        % Identification data
         % ------------------------------------------------------
+
+        results(i).segment(seg).identification.data = ...
+            data_id;
 
         results(i).segment(seg).identification.input = u;
 
         results(i).segment(seg).identification.output = y;
 
-        results(i).segment(seg).identification.data = data_id;
-
 
         %% -----------------------------------------------------
-        % Store transfer function
+        % Transfer function
         % ------------------------------------------------------
 
         results(i).segment(seg).TF.model = Gest;
@@ -747,13 +787,13 @@ for i = 1:num_experiments
 
         results(i).segment(seg).TF.a0 = a0;
 
-        results(i).segment(seg).TF.k = k_tf;
-
         results(i).segment(seg).TF.b = b_tf;
+
+        results(i).segment(seg).TF.k = k_tf;
 
 
         %% -----------------------------------------------------
-        % Store state-space model
+        % State space
         % ------------------------------------------------------
 
         results(i).segment(seg).SS.model = Gss;
@@ -776,14 +816,14 @@ for i = 1:num_experiments
 
 
         %% -----------------------------------------------------
-        % Store SS -> TF conversion
+        % SS -> TF
         % ------------------------------------------------------
 
         results(i).segment(seg).SS.transfer_function = Gss_tf;
 
 
         %% =====================================================
-        %             STORE LEGACY ARRAYS
+        %          STORE MODELS FOR LATER MERGING
         % ======================================================
 
         Gest_all{i,seg} = Gest;
@@ -791,6 +831,25 @@ for i = 1:num_experiments
 
         fit_tf_all(i,seg) = fit_tf;
         fit_ss_all(i,seg) = fit_ss;
+
+        IDdata_all{i,seg} = data_id;
+
+
+        % IMPORTANT:
+        %
+        % merge() requires models of the SAME structure.
+        %
+        % Therefore:
+        %
+        %   TF models are collected separately
+        %   SS models are collected separately
+        %
+        % We do NOT merge TF and SS together.
+
+
+        TF_models_for_merge{end+1} = Gest;
+
+        SS_models_for_merge{end+1} = Gss;
 
 
         %% =====================================================
@@ -825,6 +884,7 @@ for i = 1:num_experiments
         disp(['Experiment: ',experiment_id])
         disp(['Segment:    ',num2str(seg)])
         disp('======================================================')
+
 
         disp(' ')
         disp('IDENTIFICATION DATA')
@@ -889,16 +949,354 @@ end
 
 
 %% =============================================================
-%              SAVE COMPLETE RESULTS
+% =============================================================
+%
+%              MERGE ALL TRANSFER FUNCTION MODELS
+%
+% =============================================================
+% =============================================================
+
+disp(' ')
+disp('======================================================')
+disp('             MERGING TRANSFER FUNCTION MODELS')
+disp('======================================================')
+
+
+% Only models having the same structure can be merged.
+%
+% Each individual experiment/segment produced an idtf model:
+%
+%       G_TF_1
+%       G_TF_2
+%       G_TF_3
+%       ...
+%
+% merge() combines them into one identified model.
+%
+% The resulting parameters are statistically weighted according
+% to the parameter covariance of the individual models.
+
+
+if ~isempty(TF_models_for_merge)
+
+    GTF_merged = ...
+        merge(TF_models_for_merge{:});
+
+
+    %% ---------------------------------------------------------
+    % Store merged TF
+    % ----------------------------------------------------------
+
+    results_merged.TF.model = GTF_merged;
+
+
+    %% ---------------------------------------------------------
+    % Extract merged TF coefficients
+    % ----------------------------------------------------------
+
+    [num_merged,den_merged] = ...
+        tfdata(GTF_merged,'v');
+
+    results_merged.TF.numerator = num_merged;
+
+    results_merged.TF.denominator = den_merged;
+
+
+    %% ---------------------------------------------------------
+    % Merged poles
+    % ----------------------------------------------------------
+
+    results_merged.TF.poles = pole(GTF_merged);
+
+
+    %% ---------------------------------------------------------
+    % Merged natural frequency / damping
+    % ----------------------------------------------------------
+
+    if length(den_merged) == 3
+
+        a1_merged = den_merged(2);
+        a0_merged = den_merged(3);
+
+        wn_merged = sqrt(abs(a0_merged));
+
+        if wn_merged > 0
+
+            zeta_merged = ...
+                a1_merged/(2*wn_merged);
+
+        else
+
+            zeta_merged = NaN;
+
+        end
+
+    else
+
+        a1_merged = NaN;
+        a0_merged = NaN;
+        wn_merged = NaN;
+        zeta_merged = NaN;
+
+    end
+
+
+    results_merged.TF.a1 = a1_merged;
+
+    results_merged.TF.a0 = a0_merged;
+
+    results_merged.TF.wn = wn_merged;
+
+    results_merged.TF.zeta = zeta_merged;
+
+
+    disp(' ')
+    disp('MERGED TRANSFER FUNCTION:')
+    disp(GTF_merged)
+
+    disp(' ')
+    disp('Merged poles:')
+    disp(results_merged.TF.poles)
+
+    disp(' ')
+    disp(['Merged natural frequency = ',...
+        num2str(wn_merged),' rad/s'])
+
+    disp(['Merged damping ratio = ',...
+        num2str(zeta_merged)])
+
+end
+
+
+%% =============================================================
+% =============================================================
+%
+%              MERGE ALL STATE-SPACE MODELS
+%
+% =============================================================
+% =============================================================
+
+disp(' ')
+disp('======================================================')
+disp('              MERGING STATE-SPACE MODELS')
+disp('======================================================')
+
+
+if ~isempty(SS_models_for_merge)
+
+    GSS_merged = ...
+        merge(SS_models_for_merge{:});
+
+
+    %% ---------------------------------------------------------
+    % Store merged SS
+    % ----------------------------------------------------------
+
+    results_merged.SS.model = GSS_merged;
+
+
+    %% ---------------------------------------------------------
+    % Extract merged matrices
+    % ----------------------------------------------------------
+
+    results_merged.SS.A = GSS_merged.A;
+
+    results_merged.SS.B = GSS_merged.B;
+
+    results_merged.SS.C = GSS_merged.C;
+
+    results_merged.SS.D = GSS_merged.D;
+
+
+    %% ---------------------------------------------------------
+    % Merged poles
+    % ----------------------------------------------------------
+
+    results_merged.SS.poles = ...
+        pole(GSS_merged);
+
+
+    %% ---------------------------------------------------------
+    % Display
+    % ----------------------------------------------------------
+
+    disp(' ')
+    disp('MERGED STATE-SPACE MODEL:')
+    disp(GSS_merged)
+
+    disp(' ')
+    disp('Merged A matrix:')
+    disp(GSS_merged.A)
+
+    disp(' ')
+    disp('Merged B matrix:')
+    disp(GSS_merged.B)
+
+    disp(' ')
+    disp('Merged C matrix:')
+    disp(GSS_merged.C)
+
+    disp(' ')
+    disp('Merged D matrix:')
+    disp(GSS_merged.D)
+
+    disp(' ')
+    disp('Merged poles:')
+    disp(results_merged.SS.poles)
+
+end
+
+
+%% =============================================================
+% =============================================================
+%
+%              CONVERT MERGED SS -> TF
+%
+% =============================================================
+% =============================================================
+
+if ~isempty(SS_models_for_merge)
+
+    GSS_merged_tf = tf(GSS_merged);
+
+    results_merged.SS.transfer_function = ...
+        GSS_merged_tf;
+
+
+    disp(' ')
+    disp('======================================================')
+    disp('        MERGED STATE-SPACE -> TRANSFER FUNCTION')
+    disp('======================================================')
+
+    disp(GSS_merged_tf)
+
+end
+
+
+%% =============================================================
+% =============================================================
+%
+%              COMPARE MERGED MODELS
+%
+% =============================================================
+% =============================================================
+
+disp(' ')
+disp('======================================================')
+disp('             VALIDATING MERGED MODELS')
+disp('======================================================')
+
+
+% Create one figure containing all individual experiments.
+
+figure()
+hold on
+grid on
+
+title('Merged Transfer Function vs Individual Experiments')
+xlabel('Time (s)')
+ylabel('Angle (rad)')
+
+
+%% =============================================================
+% Plot individual experimental responses
+% =============================================================
+
+for i = 1:num_experiments
+
+    for seg = 1:results(i).num_segments
+
+        data_val = ...
+            results(i).segment(seg).identification.data;
+
+        if exist('GTF_merged','var')
+
+            [yhat,fit] = compare(...
+                data_val,...
+                GTF_merged,...
+                compareOptions('InitialCondition','z'));
+
+            fit_merged_tf_all(i,seg) = fit;
+
+        end
+
+    end
+
+end
+
+
+%% =============================================================
+% Compare merged TF and merged SS numerically
+% =============================================================
+
+if exist('GTF_merged','var') && ...
+   exist('GSS_merged','var')
+
+    disp(' ')
+    disp('MERGED TF:')
+    disp(GTF_merged)
+
+    disp(' ')
+    disp('MERGED SS:')
+    disp(GSS_merged)
+
+end
+
+
+%% =============================================================
+%                  SUMMARY TABLE
+% =============================================================
+
+summary_rows = [];
+
+for i = 1:num_experiments
+
+    for seg = 1:results(i).num_segments
+
+        row.experiment = string(id(i,:));
+
+        row.segment = seg;
+
+        row.TF_fit = ...
+            results(i).segment(seg).TF.fit_percent;
+
+        row.SS_fit = ...
+            results(i).segment(seg).SS.fit_percent;
+
+        row.torque_amplitude = ...
+            results(i).segment(seg).torque_amplitude;
+
+        row.angle_amplitude = ...
+            results(i).segment(seg).angle_amplitude_deg;
+
+        row.TF_wn = ...
+            results(i).segment(seg).TF.wn;
+
+        row.TF_zeta = ...
+            results(i).segment(seg).TF.zeta;
+
+        summary_rows = ...
+            [summary_rows; row];
+
+    end
+
+end
+
+
+%% =============================================================
+%                  SAVE EVERYTHING
 % =============================================================
 
 save(...
     'system_identification_results.mat',...
     'results',...
+    'results_merged',...
     'Gest_all',...
     'Gss_all',...
     'fit_tf_all',...
     'fit_ss_all',...
+    'fit_merged_tf_all',...
+    'IDdata_all',...
     'center',...
     'c_angle',...
     'd_angle',...
@@ -915,10 +1313,11 @@ save(...
 
 disp(' ')
 disp('======================================================')
-disp('IDENTIFICATION COMPLETE')
+disp('           SYSTEM IDENTIFICATION COMPLETE')
 disp('======================================================')
 
-disp('Results saved to:')
+disp(' ')
+disp('Individual models and merged models saved in:')
 disp('system_identification_results.mat')
 
 
@@ -937,9 +1336,17 @@ function [segment,...
 % Normalize signal
 % -------------------------------------------------------------
 
+signal_range = max(signal)-min(signal);
+
+if signal_range == 0
+
+    error('Signal has zero amplitude.')
+
+end
+
+
 sig_norm = ...
-    (signal-min(signal)) / ...
-    (max(signal)-min(signal));
+    (signal-min(signal)) / signal_range;
 
 
 % -------------------------------------------------------------
@@ -959,6 +1366,13 @@ dsig = diff(sig_norm)/dt;
 % -------------------------------------------------------------
 % Detect rising edges
 % -------------------------------------------------------------
+
+if length(dsig) < 6
+
+    error('Not enough data to detect rising edges.')
+
+end
+
 
 sorted_dsig = ...
     sort(dsig(5:end),'descend');
@@ -1020,162 +1434,7 @@ t_segment = ...
     t(idx_start:idx_end);
 
 end
-%% =============================================================
-%              MERGE IDENTIFIED MODELS
-%
-% Each experiment/segment has produced:
-%
-%   Gest_all{i,seg} = transfer-function model
-%   Gss_all{i,seg}  = state-space model
-%
-% We now merge models having the SAME structure.
-% =============================================================
-
-disp(' ')
-disp('======================================================')
-disp('              MERGING IDENTIFIED MODELS')
-disp('======================================================')
-
-
-%% =============================================================
-%                MERGE TRANSFER FUNCTIONS
-% =============================================================
-
-% Collect all valid TF models
-
-TF_models = {};
-
-for i = 1:num_experiments
-
-    for seg = 1:size(Gest_all,2)
-
-        if ~isempty(Gest_all{i,seg})
-
-            TF_models{end+1} = Gest_all{i,seg};
-
-        end
-
-    end
-
-end
-
-
-% Start with the first TF model
-
-GTF_merged = TF_models{1};
-
-
-% Sequentially merge all remaining TF models
-
-for n = 2:length(TF_models)
-
-    GTF_merged = merge(GTF_merged,TF_models{n});
-
-end
-
-
-%% =============================================================
-%                MERGE STATE-SPACE MODELS
-% =============================================================
-
-SS_models = {};
-
-for i = 1:num_experiments
-
-    for seg = 1:size(Gss_all,2)
-
-        if ~isempty(Gss_all{i,seg})
-
-            SS_models{end+1} = Gss_all{i,seg};
-
-        end
-
-    end
-
-end
-
-
-% Start with the first SS model
-
-GSS_merged = SS_models{1};
-
-
-% Sequentially merge all remaining SS models
-
-for n = 2:length(SS_models)
-
-    GSS_merged = merge(GSS_merged,SS_models{n});
-
-end
-
-
-%% =============================================================
-%                  DISPLAY MERGED MODELS
-% =============================================================
-
-disp(' ')
-disp('======================================================')
-disp('              MERGED TRANSFER FUNCTION')
-disp('======================================================')
-
-disp(GTF_merged)
-
-
-disp(' ')
-disp('======================================================')
-disp('              MERGED STATE-SPACE MODEL')
-disp('======================================================')
-
-disp(GSS_merged)
-
-
-%% =============================================================
-%          CONVERT MERGED SS -> TRANSFER FUNCTION
-% =============================================================
-
-GSS_merged_tf = tf(GSS_merged);
-
-disp(' ')
-disp('======================================================')
-disp('       MERGED STATE-SPACE -> TRANSFER FUNCTION')
-disp('======================================================')
-
-disp(GSS_merged_tf)
-
-
-%% =============================================================
-%                  MERGED MODEL POLES
-% =============================================================
-
-disp(' ')
-disp('Merged TF poles:')
-disp(pole(GTF_merged))
-
-disp(' ')
-disp('Merged SS poles:')
-disp(pole(GSS_merged))
-
-
-%% =============================================================
-%                    SAVE MERGED MODELS
-% =============================================================
-
-save(...
-    'system_identification_results.mat',...
-    'results',...
-    'Gest_all',...
-    'Gss_all',...
-    'fit_tf_all',...
-    'fit_ss_all',...
-    'GTF_merged',...
-    'GSS_merged',...
-    'GSS_merged_tf',...
-    '-append')
-
-
-disp(' ')
-disp('Merged models saved.')
-
+```
 
 
 
