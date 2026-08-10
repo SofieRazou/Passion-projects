@@ -106,125 +106,54 @@ fprintf('Average Damping (b)  : %.6f N*m*s/rad\n', mean(b_est_all));
 fprintf('Average Stiffness (k): %.6f N*m/rad\n', mean(k_est_all));
 fprintf('Average Model Fit    : %.2f%%\n', mean(fit_tf_all)); *)
 
-clear
-close all
-clc
-
-%% =============================================================
-%                  KNOWN PHYSICAL PARAMETERS
-% =============================================================
-J_known = 0.0103;        % Motor inertia [kg*m^2]
-num_val = 1 / J_known;   % Numerator K = 1/J (Fixed at ~97.087)
-
-%% =============================================================
-%                   LOAD AND PREPARE DATA
-% =============================================================
-if ~exist('exp_sorted.mat', 'file')
-    error('exp_sorted.mat not found! Run the extraction script first.');
-end
+clear; close all; clc;
 
 load('exp_sorted.mat'); 
 
-% Identify individual segments based on time resets
+% Identify segments
 time_vec      = exp_sorted(:, 3);
 seg_breaks    = find(diff(time_vec) < 0);
 start_indices = [1; seg_breaks + 1];
 end_indices   = [seg_breaks; length(time_vec)];
+num_segments  = length(start_indices);
 
-num_total_segments = length(start_indices);
-fprintf('Found %d individual segments to analyze.\n\n', num_total_segments);
+k_all = zeros(num_segments, 1);
+b_all = zeros(num_segments, 1);
 
-% Preallocate summary result arrays
-b_est_all  = zeros(num_total_segments, 1);
-k_est_all  = zeros(num_total_segments, 1);
-fit_tf_all = zeros(num_total_segments, 1);
-
-%% =============================================================
-%              LOOP THROUGH EACH EXPERIMENT SEGMENT
-% =============================================================
-for s = 1:num_total_segments
-    % Extract current segment
-    idx       = start_indices(s):end_indices(s);
-    seg_angle = exp_sorted(idx, 1); % Column 1: Angle (deg)
-    seg_load  = exp_sorted(idx, 2); % Column 2: Measured Torque (Nm)
-    seg_time  = exp_sorted(idx, 3); % Column 3: Time (s)
+for s = 1:num_segments
+    idx = start_indices(s):end_indices(s);
     
-    % Compute sampling time for this segment
+    seg_angle = deg2rad(exp_sorted(idx, 1)); % rad
+    seg_load  = exp_sorted(idx, 2);          % Nm
+    seg_time  = exp_sorted(idx, 3);          % s
+    
     Ts = mean(diff(seg_time));
     
-    % Use detrending (better than mean subtraction for drift/offsets)
-    u = detrend(seg_load(:));               % Torque [Nm]
-    y = detrend(deg2rad(seg_angle(:)));     % Angle [rad]
+    % Zero-mean signals
+    tau   = detrend(seg_load);
+    theta = detrend(seg_angle);
     
-    % Create System Identification Data Object
-    data_id = iddata(y, u, Ts);
-    data_id.InputName  = {'Measured torque'};
-    data_id.OutputName = {'Encoder angle'};
-    data_id.InputUnit  = {'Nm'};
-    data_id.OutputUnit = {'rad'};
-    data_id.ExperimentName = {sprintf('Segment_%d', s)};
+    % Filtered velocity (theta_dot) to avoid noise spikes
+    [b_flt, a_flt] = butter(2, 10 * (2 * Ts), 'low'); % 10 Hz cutoff
+    theta_flt = filtfilt(b_flt, a_flt, theta);
+    theta_dot = gradient(theta_flt) / Ts;
     
-    % ----------------------------------------------------------
-    % CONSTRAINED TF ESTIMATION (K fixed to 1/J)
-    % Model structure: G(s) = (1/J) / (s^2 + a1*s + a0)
-    % ----------------------------------------------------------
-    a1_init = 10; % Initial guess for a1 = b/J
-    a0_init = 100; % Initial guess for a0 = k/J
+    % Linear Regression: tau = k * theta + b * theta_dot
+    % Matrix form: tau = [theta, theta_dot] * [k; b]
+    X = [theta, theta_dot];
+    params = X \ tau; 
     
-    % Initialize idtf object with fixed numerator
-    init_sys = idtf(num_val, [1, a1_init, a0_init]);
+    k_all(s) = params(1); % Stiffness [Nm/rad]
+    b_all(s) = params(2); % Damping [Nms/rad]
     
-    % Lock the numerator (K = 1/J is NOT estimated)
-    init_sys.Structure.Numerator.Free = false; 
+    % Reconstructed torque fit
+    tau_pred = X * params;
+    fit_R2 = 1 - (sum((tau - tau_pred).^2) / sum((tau - mean(tau)).^2));
     
-    % Allow denominator coefficients a1 and a0 to be estimated
-    init_sys.Structure.Denominator.Free = [false, true, true]; 
-    
-    % Run tfest with constrained system
-    opt = tfestOptions('Display', 'off');
-    Gest = tfest(data_id, init_sys, opt);
-    
-    % Extract denominator coefficients: den = [1, a1, a0]
-    [~, den] = tfdata(Gest, 'v');
-    a1 = den(2); % a1 = b / J
-    a0 = den(3); % a0 = k / J
-    
-    % Extract true physical parameters
-    b_est = a1 * J_known; % b = a1 * J
-    k_est = a0 * J_known; % k = a0 * J
-    
-    % Calculate TF fit percentage
-    [~, fit_tf] = compare(data_id, Gest);
-    
-    % Store metrics
-    b_est_all(s)  = b_est;
-    k_est_all(s)  = k_est;
-    fit_tf_all(s) = fit_tf;
-    
-    % Plot comparison for this segment
-    figure('Name', sprintf('Segment %d Constrained TF Fit', s));
-    compare(data_id, Gest);
-    grid on;
-    title(sprintf('Segment %d (Numerator = 1/J): Fit = %.1f%% | b = %.4f Nms/rad | k = %.4f Nm/rad', ...
-        s, fit_tf, b_est, k_est));
-    set(findall(gcf, 'Type', 'Line'), 'LineWidth', 1.5);
-    drawnow;
+    fprintf('Segment %d: Stiffness k = %.2f Nm/rad | Damping b = %.4f Nms/rad | R^2 = %.2f%%\n', ...
+        s, k_all(s), b_all(s), fit_R2 * 100);
 end
 
-%% =============================================================
-%                   PRINT SUMMARY RESULTS
-% =============================================================
-Segment_ID   = (1:num_total_segments)';
-SummaryTable = table(Segment_ID, b_est_all, k_est_all, fit_tf_all, ...
-    'VariableNames', {'Segment', 'Damping_b_Nms_rad', 'Stiffness_k_Nm_rad', 'TF_Fit_Percent'});
-
-disp('========================================================================');
-disp('          PHYSICAL TRANSFER FUNCTION ESTIMATION (FIXED NUMERATOR)       ');
-disp('========================================================================');
-disp(SummaryTable);
-
-% Overall Averages
-fprintf('\n--- OVERALL AVERAGES ACROSS %d SEGMENTS ---\n', num_total_segments);
-fprintf('Average Damping (b)  : %.6f N*m*s/rad\n', mean(b_est_all));
-fprintf('Average Stiffness (k): %.6f N*m/rad\n', mean(mean(k_est_all)));
-fprintf('Average Model Fit    : %.2f%%\n', mean(fit_tf_all));
+fprintf('\n=== OVERALL RESULTS ===\n');
+fprintf('Mean Stiffness (k) : %.2f Nm/rad\n', mean(k_all));
+fprintf('Mean Damping (b)   : %.4f Nms/rad\n', mean(b_all));
