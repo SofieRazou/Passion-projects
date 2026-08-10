@@ -1,4 +1,3 @@
-```matlab
 clear
 close all
 clc
@@ -449,10 +448,36 @@ segment = ...
 
 t_segment = ...
     t(idx_start:idx_end);
+%%Perform system identification based on zero kappa rendering experiment
+%%wth load cell
+Ts = 0.01; %sample time in sec
+%Data collection with said input and output tracking
+dt = Ts;
+t = 0:dt:5;
+
+u = seg_load;
+yreal = seg_angle;
+
+
+figure;
+plot(t, [u, yreal], 'LineWidth', 4);
+axis([0 5 0 1.4]);
+grid on;
+legend(['u';'y']);
+
+%Fit data to said model structure 
+data = iddata(yreal, u, dt);
+Gest = tfest(data,2, 0, NaN);
+
+%Draw comparison between the dynamics and the fitted model 
+opt = compareOptions;
+opt.InitialCondition = 'z';
+figure;
+compare(data,Gest,opt);
+grid on;
+set(findall(gca, 'Type', 'Line'), 'LineWidth', 4');
 
 end
-```
-
 
 
 
