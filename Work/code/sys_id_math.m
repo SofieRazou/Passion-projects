@@ -7,8 +7,7 @@ clc
 % =============================================================
 
 J_known = 0.0103; % Known inertia of the CAPT Motor in [kg*m^2]
-k_init  = 100.0;  % Initial guess for motor stiffness [Nm/rad]
-b_init  = 0.1;    % Initial guess for motor damping [Nm*s/rad]
+p_init  = [100.0; 0.1]; % Initial guesses: p(1) = k (stiffness), p(2) = b (damping)
 
 %% =============================================================
 %                          LOAD DATA
@@ -189,8 +188,8 @@ for i = 1:num_experiments
         [seg_sent, seg_time, i_start, i_end] = extract_5_periods(seg_t, seg_torque_sent);
 
         % Input & Output Extraction
-        seg_load      = filtered_torque_load(i_start0+i_start : i_start0+i_end) - load_preload;
-        seg_angle_deg = angle(i_start0+i_start : i_start0+i_end);
+        seg_load      = filtered_torque_load(i_start0+i_start-1 : i_start0+i_end-1) - load_preload;
+        seg_angle_deg = angle(i_start0+i_start-1 : i_start0+i_end-1);
         seg_angle     = deg2rad(seg_angle_deg);
         seg_angle     = seg_angle - mean(seg_angle); % Remove equilibrium
 
@@ -284,14 +283,14 @@ for i = 1:num_experiments
         %      IDENTIFICATION METHOD 3: GREY-BOX (idgrey)
         % =====================================================
 
-        % Initialize system structure
-        init_sys = idgrey('motor_ode', {k_init, b_init}, 'c', {J_known});
+        % Initialize idgrey system with parameter vector [k; b] and auxData J_known
+        init_sys = idgrey('motor_ode', p_init, 'c', J_known);
         
-        % Constrain stiffness & damping to positive physical values
+        % Set constraints (k >= 0, b >= 0)
         init_sys.Structure.Parameters(1).Minimum = 0; 
         init_sys.Structure.Parameters(2).Minimum = 0; 
 
-        % Estimate physical parameters
+        % Estimate parameters
         opt_grey = greyestOptions('Display', 'off');
         Ggrey    = greyest(data_id, init_sys, opt_grey);
 
@@ -554,9 +553,12 @@ disp('======================================================')
 %                   REQUIRED SUBFUNCTIONS
 % =============================================================
 
-function [A, B, C, D] = motor_ode(k, b, Ts, Jm)
-    % Mechanical equation: Jm*theta'' + b*theta' + k*theta = Torque
-    % State vector x = [theta; theta_dot]
+function [A, B, C, D] = motor_ode(p, Ts, Jm)
+    % Unpack parameter vector
+    k = p(1);
+    b = p(2);
+
+    % State vector: x = [theta; theta_dot]
     A = [   0,      1;
         -k/Jm,  -b/Jm];
     B = [0; 1/Jm];
@@ -565,23 +567,30 @@ function [A, B, C, D] = motor_ode(k, b, Ts, Jm)
 end
 
 function [segment, t_segment, idx_start, idx_end] = extract_5_periods(t, signal)
+    % Signal normalization
     signal_range = max(signal) - min(signal);
     if signal_range == 0
-        error('Signal has zero amplitude.')
+        idx_start = 1;
+        idx_end   = length(signal);
+    else
+        % Detect zero-crossings to extract exactly 5 periods
+        sig_centered = signal - mean(signal);
+        zc_idx = find(sig_centered(1:end-1) .* sig_centered(2:end) < 0);
+        
+        if length(zc_idx) >= 11
+            % 10 zero-crossings correspond to 5 full cycles
+            idx_start = zc_idx(1);
+            idx_end   = zc_idx(11);
+        else
+            % Fallback if signal doesn't contain 5 clear zero-crossings
+            idx_start = 1;
+            idx_end   = length(signal);
+        end
     end
 
-    sig_norm = (signal - min(signal)) / signal_range;
-    dt       = mean(diff(t));
-    dsig     = diff(sig_norm) / dt;
-
-    % Complete default boundary indices
-    idx_start = 1;
-    idx_end   = length(signal);
-    
     segment   = signal(idx_start:idx_end);
     t_segment = t(idx_start:idx_end);
 end
-
 %"Real" physical system dynamics
 s = tf('s');
 Greal = 5*(s+1)/(s^2 + 6*s + 6.7)*exp(-0.1*s);
