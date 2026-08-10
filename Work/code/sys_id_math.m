@@ -1020,8 +1020,161 @@ t_segment = ...
     t(idx_start:idx_end);
 
 end
-```
+%% =============================================================
+%              MERGE IDENTIFIED MODELS
+%
+% Each experiment/segment has produced:
+%
+%   Gest_all{i,seg} = transfer-function model
+%   Gss_all{i,seg}  = state-space model
+%
+% We now merge models having the SAME structure.
+% =============================================================
 
+disp(' ')
+disp('======================================================')
+disp('              MERGING IDENTIFIED MODELS')
+disp('======================================================')
+
+
+%% =============================================================
+%                MERGE TRANSFER FUNCTIONS
+% =============================================================
+
+% Collect all valid TF models
+
+TF_models = {};
+
+for i = 1:num_experiments
+
+    for seg = 1:size(Gest_all,2)
+
+        if ~isempty(Gest_all{i,seg})
+
+            TF_models{end+1} = Gest_all{i,seg};
+
+        end
+
+    end
+
+end
+
+
+% Start with the first TF model
+
+GTF_merged = TF_models{1};
+
+
+% Sequentially merge all remaining TF models
+
+for n = 2:length(TF_models)
+
+    GTF_merged = merge(GTF_merged,TF_models{n});
+
+end
+
+
+%% =============================================================
+%                MERGE STATE-SPACE MODELS
+% =============================================================
+
+SS_models = {};
+
+for i = 1:num_experiments
+
+    for seg = 1:size(Gss_all,2)
+
+        if ~isempty(Gss_all{i,seg})
+
+            SS_models{end+1} = Gss_all{i,seg};
+
+        end
+
+    end
+
+end
+
+
+% Start with the first SS model
+
+GSS_merged = SS_models{1};
+
+
+% Sequentially merge all remaining SS models
+
+for n = 2:length(SS_models)
+
+    GSS_merged = merge(GSS_merged,SS_models{n});
+
+end
+
+
+%% =============================================================
+%                  DISPLAY MERGED MODELS
+% =============================================================
+
+disp(' ')
+disp('======================================================')
+disp('              MERGED TRANSFER FUNCTION')
+disp('======================================================')
+
+disp(GTF_merged)
+
+
+disp(' ')
+disp('======================================================')
+disp('              MERGED STATE-SPACE MODEL')
+disp('======================================================')
+
+disp(GSS_merged)
+
+
+%% =============================================================
+%          CONVERT MERGED SS -> TRANSFER FUNCTION
+% =============================================================
+
+GSS_merged_tf = tf(GSS_merged);
+
+disp(' ')
+disp('======================================================')
+disp('       MERGED STATE-SPACE -> TRANSFER FUNCTION')
+disp('======================================================')
+
+disp(GSS_merged_tf)
+
+
+%% =============================================================
+%                  MERGED MODEL POLES
+% =============================================================
+
+disp(' ')
+disp('Merged TF poles:')
+disp(pole(GTF_merged))
+
+disp(' ')
+disp('Merged SS poles:')
+disp(pole(GSS_merged))
+
+
+%% =============================================================
+%                    SAVE MERGED MODELS
+% =============================================================
+
+save(...
+    'system_identification_results.mat',...
+    'results',...
+    'Gest_all',...
+    'Gss_all',...
+    'fit_tf_all',...
+    'fit_ss_all',...
+    'GTF_merged',...
+    'GSS_merged',...
+    'GSS_merged_tf',...
+    '-append')
+
+
+disp(' ')
+disp('Merged models saved.')
 
 
 
