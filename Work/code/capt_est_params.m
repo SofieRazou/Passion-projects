@@ -5,90 +5,137 @@ clc
 %% =============================================================
 %                  KNOWN PHYSICAL PARAMETERS
 % =============================================================
-J = 0.0103; % Motor inertia [kg*m^2]
+J_known = 0.0103; % Motor inertia [kg*m^2] (Fixed Auxiliary Parameter)
 
 %% =============================================================
-%                   LOAD AND EXTRACT DATA
+%                   LOAD AND PREPARE DATA
 % =============================================================
 if ~exist('exp_sorted.mat', 'file')
-    error('exp_sorted.mat not found in current workspace directory.');
+    error('exp_sorted.mat not found! Run the extraction script first.');
 end
 
 load('exp_sorted.mat'); 
 
-if isempty(exp_sorted)
-    error('exp_sorted is empty! Run Script 1 to populate data first.');
+% Identify individual segments based on time resets
+time_vec      = exp_sorted(:, 3);
+seg_breaks    = find(diff(time_vec) < 0);
+start_indices = [1; seg_breaks + 1];
+end_indices   = [seg_breaks; length(time_vec)];
+
+num_total_segments = length(start_indices);
+fprintf('Found %d individual segments to analyze.\n\n', num_total_segments);
+
+% Preallocate summary result arrays
+b_est_all  = zeros(num_total_segments, 1);
+k_est_all  = zeros(num_total_segments, 1);
+fit_gb_all = zeros(num_total_segments, 1);
+
+%% =============================================================
+%              LOOP THROUGH EACH EXPERIMENT SEGMENT
+% =============================================================
+for s = 1:num_total_segments
+    % Extract current segment
+    idx       = start_indices(s):end_indices(s);
+    seg_angle = exp_sorted(idx, 1); % Column 1: Angle (deg)
+    seg_load  = exp_sorted(idx, 2); % Column 2: Measured Torque (Nm)
+    seg_time  = exp_sorted(idx, 3); % Column 3: Time (s)
+    
+    % Compute sampling time
+    Ts = mean(diff(seg_time));
+    
+    % Zero-mean signals & convert angle to radians
+    u = seg_load(:) - mean(seg_load(:));
+    y = deg2rad(seg_angle(:) - mean(seg_angle(:)));
+    
+    % Create System Identification Data Object
+    data_id = iddata(y, u, Ts);
+    data_id.InputName  = {'Measured torque'};
+    data_id.OutputName = {'Encoder angle'};
+    data_id.InputUnit  = {'Nm'};
+    data_id.OutputUnit = {'rad'};
+    data_id.ExperimentName = {sprintf('Segment_%d', s)};
+    
+    % ----------------------------------------------------------
+    % GREY-BOX ESTIMATION (Direct Physical Parameter Fitting)
+    % ----------------------------------------------------------
+    % Initial guesses for parameters: p = [b; k]
+    p_init = [0.1; 1.0]; % [b_guess; k_guess]
+    
+    % Construct idgrey model structure using local ODE function
+    % 'c' denotes continuous-time model
+    init_sys = idgrey('motor_ode', p_init, 'c', J_known);
+    
+    % Enforce physical bounds: b > 0, k > 0
+    init_sys.Structure.parameters(1).Minimum = 0; % b_min
+    init_sys.Structure.parameters(2).Minimum = 0; % k_min
+    
+    % Estimate physical parameters using greyest
+    opt = greyestOptions('Display', 'off');
+    opt.SearchMethod = 'lm'; % Levenberg-Marquardt optimizer
+    
+    G_grey = greyest(data_id, init_sys, opt);
+    
+    % Extract estimated parameters directly
+    p_est = G_grey.Report.Parameters.ParVector;
+    b_est = p_est(1);
+    k_est = p_est(2);
+    
+    % Calculate model fit percentage
+    [~, fit_gb] = compare(data_id, G_grey);
+    
+    % Store metrics
+    b_est_all(s)  = b_est;
+    k_est_all(s)  = k_est;
+    fit_gb_all(s) = fit_gb;
+    
+    % Plot response for current segment
+    figure('Name', sprintf('Segment %d Grey-Box Fit', s));
+    compare(data_id, G_grey);
+    grid on;
+    title(sprintf('Segment %d Grey-Box Fit = %.1f%% (b = %.4f, k = %.4f)', ...
+        s, fit_gb, b_est, k_est));
+    set(findall(gcf, 'Type', 'Line'), 'LineWidth', 1.5);
+    drawnow;
 end
 
-seg_angle = exp_sorted(:, 1); % Column 1: Angle (deg)
-seg_load  = exp_sorted(:, 2); % Column 2: Measured Torque (Nm)
-raw_time  = exp_sorted(:, 3); % Column 3: Time (s)
+%% =============================================================
+%                   PRINT SUMMARY RESULTS
+% =============================================================
+Segment_ID   = (1:num_total_segments)';
+SummaryTable = table(Segment_ID, b_est_all, k_est_all, fit_gb_all, ...
+    'VariableNames', {'Segment', 'Damping_b_Nms_rad', 'Stiffness_k_Nm_rad', 'GreyBox_Fit_Percent'});
 
-% Handle concatenated segment time jumps
-dt_vec   = diff(raw_time);
-valid_dt = dt_vec(dt_vec > 0); 
-Ts       = mean(valid_dt);
+disp('========================================================================');
+disp('                  GREY-BOX SYSTEM IDENTIFICATION RESULTS                ');
+disp('========================================================================');
+disp(SummaryTable);
 
-% Reconstruct continuous time vector
-seg_time = (0:length(seg_angle)-1)' * Ts;
+% Overall Averages
+fprintf('\n--- OVERALL AVERAGES ACROSS %d SEGMENTS ---\n', num_total_segments);
+fprintf('Average Damping (b)  : %.6f N*m*s/rad\n', mean(b_est_all));
+fprintf('Average Stiffness (k): %.6f N*m/rad\n', mean(k_est_all));
+fprintf('Average Model Fit    : %.2f%%\n', mean(fit_gb_all));
 
 %% =============================================================
-%                 PREPARE IDDATA FOR ANALYSIS
+%             GREY-BOX LOCAL ODE MATRIX FUNCTION
 % =============================================================
-u = seg_load(:) - mean(seg_load(:));
-y = deg2rad(seg_angle(:) - mean(seg_angle(:)));
-
-if ~exist('experiment_id', 'var'), experiment_id = 'Sorted'; end
-if ~exist('seg', 'var'), seg = 1; end
-
-data_id = iddata(y, u, Ts);
-data_id.InputName  = {'Measured torque'};
-data_id.OutputName = {'Encoder angle'};
-data_id.InputUnit  = {'Nm'};
-data_id.OutputUnit = {'rad'};
-data_id.ExperimentName = {['Exp_', num2str(experiment_id), '_Seg_', num2str(seg)]};
-
-%% =============================================================
-%           1st ID METHOD: TRANSFER FUNCTION ESTIMATION
-% =============================================================
-% Fits 2 poles and 0 zeros
-Gest = tfest(data_id, 2, 0, NaN);
-
-disp('==================================================');
-disp('Estimated Transfer Function (Gest):');
-disp(Gest);
-
-% Extract b and k directly using den = [1, a1, a0]
-[~, den] = tfdata(Gest, 'v');
-
-b_est = den(2) * J; % a1 * J
-k_est = den(3) * J; % a0 * J
-
-fprintf('Extracted Damping (b):   %.4f N*m*s/rad\n', b_est);
-fprintf('Extracted Stiffness (k): %.4f N*m/rad\n', k_est);
-disp('==================================================');
-
-%% =============================================================
-%            2nd ID METHOD: STATE-SPACE ESTIMATION
-% =============================================================
-Gss = ssest(data_id, 2); 
-Gss_tf = tf(Gss);
-
-disp('Estimated State-Space Model (Converted to TF):');
-disp(Gss_tf);
-
-%% =============================================================
-%                     BENCHMARKING & FIT
-% =============================================================
-[~, fit_tf] = compare(data_id, Gest);
-[~, fit_ss] = compare(data_id, Gss);
-
-fprintf('Transfer Function Model Fit: %.2f%%\n', fit_tf);
-fprintf('State-Space Model Fit:       %.2f%%\n', fit_ss);
-
-fig = figure('Visible', 'on');
-compare(data_id, Gest, Gss);
-grid on
-title(sprintf('TF vs State-Space Comparison (Exp: %s, Seg: %d)', num2str(experiment_id), seg));
-set(findall(gcf, 'Type', 'Line'), 'LineWidth', 2);
-drawnow;
+function [A, B, C, D] = motor_ode(p, Ts, aux)
+    % p(1) = b (damping)
+    % p(2) = k (stiffness)
+    % aux  = J (inertia, passed as auxiliary argument)
+    
+    b = p(1);
+    k = p(2);
+    J = aux;
+    
+    % State-space system matrices
+    A = [ 0   ,   1   ;
+         -k/J ,  -b/J ];
+     
+    B = [ 0   ;
+         1/J ];
+     
+    C = [ 1   ,   0  ];
+    
+    D = 0;
+end
