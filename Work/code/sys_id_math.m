@@ -1,3 +1,4 @@
+```matlab
 clear
 close all
 clc
@@ -16,26 +17,27 @@ id = ['100';'116';'098';'097';'095';'090';'085';'093';'092'];
 %              INITIALIZE IDENTIFICATION STORAGE
 % =============================================================
 
+% One structure for each experiment
+results = struct();
+
+% Keep model objects separately if desired
 Gest_all = {};
 Gss_all  = {};
 
-fit_tf_all = [];
-fit_ss_all = [];
-
+% Number of experiments
+num_experiments = length(id);
 
 
 %% =============================================================
 %                  LOOP THROUGH EXPERIMENTS
 % =============================================================
 
-for i = 1:length(id)
+for i = 1:num_experiments
 
     experiment_id = id(i,:);
 
     eval(strcat('data=exp',experiment_id,';'))
     eval(strcat('t_change=t_change',experiment_id,';'))
-
-    % t_change contains the time instants separating the segments
 
 
     %% =========================================================
@@ -125,12 +127,8 @@ for i = 1:length(id)
     center(i) = mean(angle);
 
 
-
     %% =========================================================
     %              FIGURE 1: COMPLETE EXPERIMENT
-    %
-    % This is ONLY DATA PROCESSING / VISUALIZATION.
-    % No system identification is performed here.
     % ==========================================================
 
     figure()
@@ -187,7 +185,6 @@ for i = 1:length(id)
     ylabel("Measured torque (Nm)")
 
 
-
     %% =========================================================
     %                  FIND SEGMENT INDICES
     % ==========================================================
@@ -204,11 +201,22 @@ for i = 1:length(id)
     num_segments = length(event_idx)-1;
 
 
+    %% =========================================================
+    %           INITIALIZE RESULTS FOR THIS EXPERIMENT
+    % ==========================================================
+
+    results(i).experiment_id = experiment_id;
+    results(i).fs = fs;
+    results(i).filter_cutoff = fc;
+    results(i).gain = g;
+    results(i).center_deg = center(i);
+    results(i).num_segments = num_segments;
+
+    results(i).segment = struct();
+
 
     %% =========================================================
     %              FIGURE 2: TORQUE TRACKING
-    %
-    % Again, this section is ONLY processing/analysis.
     % ==========================================================
 
     figure()
@@ -235,7 +243,6 @@ for i = 1:length(id)
             - torque_preload;
 
 
-
         %% -----------------------------------------------------
         % Extract 5 complete torque periods
         % ------------------------------------------------------
@@ -249,11 +256,10 @@ for i = 1:length(id)
             seg_torque_sent);
 
 
-
         %% -----------------------------------------------------
         % Extract measured physical torque
         %
-        % THIS WILL BE THE IDENTIFICATION INPUT
+        % IDENTIFICATION INPUT
         % ------------------------------------------------------
 
         seg_load = ...
@@ -263,11 +269,10 @@ for i = 1:length(id)
             - load_preload;
 
 
-
         %% -----------------------------------------------------
         % Extract encoder angle
         %
-        % THIS WILL BE THE IDENTIFICATION OUTPUT
+        % IDENTIFICATION OUTPUT
         % ------------------------------------------------------
 
         seg_angle_deg = ...
@@ -276,13 +281,11 @@ for i = 1:length(id)
             i_start0+i_end);
 
 
-
         %% -----------------------------------------------------
-        % Convert angle from degrees -> radians
+        % Convert degrees -> radians
         % ------------------------------------------------------
 
         seg_angle = deg2rad(seg_angle_deg);
-
 
 
         %% -----------------------------------------------------
@@ -293,13 +296,11 @@ for i = 1:length(id)
             seg_angle - mean(seg_angle);
 
 
-
         %% =====================================================
         %                  ANGLE ANALYSIS
         % ======================================================
 
         c_angle(i,seg) = mean(seg_angle_deg);
-
 
         [pks_max,~] = ...
             findpeaks(seg_angle_deg);
@@ -326,14 +327,12 @@ for i = 1:length(id)
         end
 
 
-
         %% =====================================================
         %                  TORQUE TRACKING
         % ======================================================
 
         dTorque(i,seg) = ...
             max(seg_sent)-min(seg_sent);
-
 
 
         %% =====================================================
@@ -345,9 +344,7 @@ for i = 1:length(id)
             seg_load);
 
         r(i,seg) = R(1,2);
-
         p(i,seg) = P(1,2);
-
 
 
         %% =====================================================
@@ -355,13 +352,11 @@ for i = 1:length(id)
         % ======================================================
 
         rm(i,seg) = ...
-            mean(abs(...
-            seg_sent-seg_load));
+            mean(abs(seg_sent-seg_load));
 
         rm_perc(i,seg) = ...
             rm(i,seg) / ...
             (max(seg_sent)-min(seg_sent));
-
 
 
         %% =====================================================
@@ -378,7 +373,6 @@ for i = 1:length(id)
             1-SS_res/SS_tot;
 
 
-
         %% =====================================================
         %                PLATEAU / EDGE ANALYSIS
         % ======================================================
@@ -393,15 +387,11 @@ for i = 1:length(id)
         is_edge = ~is_plateau;
 
 
-        % Plateau gain
-
         gain_plateau(i,seg) = ...
             sum(seg_load(is_plateau).* ...
                 seg_sent(is_plateau)) / ...
             sum(seg_sent(is_plateau).^2);
 
-
-        % Plateau RMSE
 
         rmse_plateau(i,seg) = ...
             sqrt(mean(...
@@ -409,13 +399,10 @@ for i = 1:length(id)
              seg_sent(is_plateau)).^2));
 
 
-        % Edge RMSE
-
         rmse_edge(i,seg) = ...
             sqrt(mean(...
             (seg_sent(is_edge)- ...
              seg_load(is_edge)).^2));
-
 
 
         %% =====================================================
@@ -468,7 +455,6 @@ for i = 1:length(id)
         end
 
 
-
         %% =====================================================
         % ======================================================
         %
@@ -488,7 +474,7 @@ for i = 1:length(id)
         %
         % Therefore:
         %
-        %        Torque  --->  Mechanical system  --->  Angle
+        %        Torque ---> Mechanical system ---> Angle
         %
         %        G(s) = Theta(s) / Torque(s)
         %
@@ -505,12 +491,10 @@ for i = 1:length(id)
         u = seg_load(:);
         y = seg_angle(:);
 
-
         % Remove mean torque
         u = u - mean(u);
 
-
-        % Create System Identification Toolbox data object
+        % Identification data
         data_id = iddata(...
             y,...
             u,...
@@ -522,16 +506,6 @@ for i = 1:length(id)
         %               TRANSFER FUNCTION
         % ======================================================
 
-        % Estimate a second-order transfer function.
-        %
-        % Expected mechanical structure:
-        %
-        %             1
-        % G(s) = -----------
-        %        Js^2+bs+k
-        %
-        % tfest estimates a generic second-order model.
-
         Gest = tfest(...
             data_id,...
             2,...
@@ -539,62 +513,288 @@ for i = 1:length(id)
             NaN);
 
 
-        % Store model
-
-        Gest_all{i,seg} = Gest;
-
-
         %% =====================================================
         %          IDENTIFICATION METHOD 2:
         %                 STATE SPACE
         % ======================================================
-
-        % A second-order state-space model is used:
-        %
-        % x1 = theta
-        % x2 = theta_dot
-        %
-        % x_dot = A*x + B*u
-        % y     = C*x + D*u
-        %
-        % For the physical mechanical system:
-        %
-        %       J*theta_ddot + b*theta_dot + k*theta = tau
-        %
-        % the state-space representation is:
-        %
-        % [theta_dot ]   [ 0       1 ] [theta    ]
-        % [theta_ddot] = [-k/J   -b/J] [theta_dot]
-        %
-        %                    [ 0 ]
-        %              +     [1/J] tau
-        %
-        % and:
-        %
-        % y = [1 0] x
-        %
-        % Here ssest first estimates a generic state-space model.
 
         Gss = ssest(...
             data_id,...
             2);
 
 
-        % Convert state-space model to transfer function
-        % so that it can be directly compared with Gest.
-
+        % Convert SS model to transfer function
         Gss_tf = tf(Gss);
 
 
-        % Store models
+        %% =====================================================
+        %                 MODEL FIT
+        % ======================================================
 
-        Gss_all{i,seg} = Gss;
+        [~,fit_tf] = compare(...
+            data_id,...
+            Gest);
 
+        [~,fit_ss] = compare(...
+            data_id,...
+            Gss);
 
 
         %% =====================================================
-        %             COMPARE TRANSFER FUNCTION
-        %             AND STATE-SPACE MODELS
+        %                 EXTRACT TF PARAMETERS
+        % ======================================================
+
+        % Transfer function:
+        %
+        %       b0*s + b1
+        % G = ---------------------
+        %       s^2 + a1*s + a0
+        %
+
+        [num_tf,den_tf] = tfdata(...
+            Gest,...
+            'v');
+
+        num_tf = num_tf(:).';
+        den_tf = den_tf(:).';
+
+
+        % Pad numerator if necessary
+        if length(num_tf) < 2
+            num_tf = [0 num_tf];
+        end
+
+        % Normalized second-order denominator
+        if length(den_tf) == 3
+
+            a1 = den_tf(2);
+            a0 = den_tf(3);
+
+            wn_tf = sqrt(a0);
+
+            zeta_tf = ...
+                a1/(2*wn_tf);
+
+            poles_tf = pole(Gest);
+
+        else
+
+            a1 = NaN;
+            a0 = NaN;
+            wn_tf = NaN;
+            zeta_tf = NaN;
+            poles_tf = pole(Gest);
+
+        end
+
+
+        %% =====================================================
+        %          PHYSICAL PARAMETERS FROM TF
+        % ======================================================
+
+        % For:
+        %
+        %       J*s^2 + b*s + k
+        %
+        % G(s) = 1/(J*s^2+b*s+k)
+        %
+        % normalized form:
+        %
+        %       1
+        % G(s) = ----------------
+        %        s^2 + b/J*s+k/J
+        %
+        %
+        % Therefore:
+        %
+        %       k/J = a0
+        %       b/J = a1
+        %
+        % and, if J is known:
+        %
+        %       k = J*a0
+        %       b = J*a1
+        %
+        % -----------------------------------------------------
+
+        % Put your known inertia here
+        J_known = NaN;
+
+        if ~isnan(J_known) && ...
+           length(den_tf) == 3
+
+            k_tf = J_known*a0;
+            b_tf = J_known*a1;
+
+        else
+
+            k_tf = NaN;
+            b_tf = NaN;
+
+        end
+
+
+        %% =====================================================
+        %                 EXTRACT SS PARAMETERS
+        % ======================================================
+
+        A = Gss.A;
+        B = Gss.B;
+        C = Gss.C;
+        D = Gss.D;
+
+
+        poles_ss = pole(Gss);
+
+
+        %% =====================================================
+        %      SS NATURAL FREQUENCY AND DAMPING
+        % ======================================================
+
+        if length(poles_ss) == 2
+
+            wn_ss = sqrt(abs(poles_ss(1)*poles_ss(2)));
+
+            zeta_ss = ...
+                -real(sum(poles_ss)) / ...
+                (2*wn_ss);
+
+        else
+
+            wn_ss = NaN;
+            zeta_ss = NaN;
+
+        end
+
+
+        %% =====================================================
+        %              STORE EVERYTHING
+        % ======================================================
+
+        % General segment information
+
+        results(i).segment(seg).segment_number = seg;
+
+        results(i).segment(seg).Ts = Ts;
+
+        results(i).segment(seg).center_deg = ...
+            c_angle(i,seg);
+
+        results(i).segment(seg).torque_amplitude = ...
+            dTorque(i,seg);
+
+        results(i).segment(seg).angle_amplitude_deg = ...
+            d_angle(i,seg);
+
+
+        % Torque tracking results
+
+        results(i).segment(seg).tracking.correlation = ...
+            r(i,seg);
+
+        results(i).segment(seg).tracking.p_value = ...
+            p(i,seg);
+
+        results(i).segment(seg).tracking.MAE = ...
+            rm(i,seg);
+
+        results(i).segment(seg).tracking.MAE_percent = ...
+            rm_perc(i,seg);
+
+        results(i).segment(seg).tracking.R2 = ...
+            R2(i,seg);
+
+        results(i).segment(seg).tracking.plateau_gain = ...
+            gain_plateau(i,seg);
+
+        results(i).segment(seg).tracking.plateau_RMSE = ...
+            rmse_plateau(i,seg);
+
+        results(i).segment(seg).tracking.edge_RMSE = ...
+            rmse_edge(i,seg);
+
+
+        %% -----------------------------------------------------
+        % Store identification data
+        % ------------------------------------------------------
+
+        results(i).segment(seg).identification.input = u;
+
+        results(i).segment(seg).identification.output = y;
+
+        results(i).segment(seg).identification.data = data_id;
+
+
+        %% -----------------------------------------------------
+        % Store transfer function
+        % ------------------------------------------------------
+
+        results(i).segment(seg).TF.model = Gest;
+
+        results(i).segment(seg).TF.numerator = num_tf;
+
+        results(i).segment(seg).TF.denominator = den_tf;
+
+        results(i).segment(seg).TF.poles = poles_tf;
+
+        results(i).segment(seg).TF.fit_percent = fit_tf;
+
+        results(i).segment(seg).TF.wn = wn_tf;
+
+        results(i).segment(seg).TF.zeta = zeta_tf;
+
+        results(i).segment(seg).TF.a1 = a1;
+
+        results(i).segment(seg).TF.a0 = a0;
+
+        results(i).segment(seg).TF.k = k_tf;
+
+        results(i).segment(seg).TF.b = b_tf;
+
+
+        %% -----------------------------------------------------
+        % Store state-space model
+        % ------------------------------------------------------
+
+        results(i).segment(seg).SS.model = Gss;
+
+        results(i).segment(seg).SS.A = A;
+
+        results(i).segment(seg).SS.B = B;
+
+        results(i).segment(seg).SS.C = C;
+
+        results(i).segment(seg).SS.D = D;
+
+        results(i).segment(seg).SS.poles = poles_ss;
+
+        results(i).segment(seg).SS.fit_percent = fit_ss;
+
+        results(i).segment(seg).SS.wn = wn_ss;
+
+        results(i).segment(seg).SS.zeta = zeta_ss;
+
+
+        %% -----------------------------------------------------
+        % Store SS -> TF conversion
+        % ------------------------------------------------------
+
+        results(i).segment(seg).SS.transfer_function = Gss_tf;
+
+
+        %% =====================================================
+        %             STORE LEGACY ARRAYS
+        % ======================================================
+
+        Gest_all{i,seg} = Gest;
+        Gss_all{i,seg} = Gss;
+
+        fit_tf_all(i,seg) = fit_tf;
+        fit_ss_all(i,seg) = fit_ss;
+
+
+        %% =====================================================
+        %             MODEL COMPARISON FIGURE
         % ======================================================
 
         figure()
@@ -607,43 +807,13 @@ for i = 1:length(id)
         grid on
 
         title([...
-            'TF vs State-Space Identification - ',...
-            'Experiment ',experiment_id,...
+            'TF vs State-Space - Experiment ',...
+            experiment_id,...
             ', Segment ',num2str(seg)])
-
 
         set(...
             findall(gcf,'Type','Line'),...
             'LineWidth',2)
-
-
-        legend(...
-            'Measured data',...
-            'Transfer function',...
-            'State-space',...
-            'Location','best')
-
-
-
-        %% =====================================================
-        %                 MODEL FIT VALUES
-        % ======================================================
-
-        % Calculate fit percentages separately.
-
-        [~,fit_tf] = compare(...
-            data_id,...
-            Gest);
-
-        [~,fit_ss] = compare(...
-            data_id,...
-            Gss);
-
-
-        fit_tf_all(i,seg) = fit_tf;
-
-        fit_ss_all(i,seg) = fit_ss;
-
 
 
         %% =====================================================
@@ -657,23 +827,28 @@ for i = 1:length(id)
         disp('======================================================')
 
         disp(' ')
-        disp('IDENTIFICATION DATA:')
+        disp('IDENTIFICATION DATA')
         disp('Input  = measured load-cell torque [Nm]')
         disp('Output = encoder angle [rad]')
 
+
         disp(' ')
-        disp('------------------------------------------------------')
-        disp('TRANSFER FUNCTION MODEL')
+        disp('TRANSFER FUNCTION')
         disp('------------------------------------------------------')
 
         disp(Gest)
 
         disp(['Fit = ',num2str(fit_tf),' %'])
 
+        disp(['Natural frequency = ',...
+            num2str(wn_tf),' rad/s'])
+
+        disp(['Damping ratio = ',...
+            num2str(zeta_tf)])
+
 
         disp(' ')
-        disp('------------------------------------------------------')
-        disp('STATE-SPACE MODEL')
+        disp('STATE SPACE')
         disp('------------------------------------------------------')
 
         disp(Gss)
@@ -682,67 +857,73 @@ for i = 1:length(id)
 
 
         disp(' ')
-        disp('STATE-SPACE MODEL CONVERTED TO TRANSFER FUNCTION')
+        disp('STATE-SPACE MATRICES')
         disp('------------------------------------------------------')
 
-        disp(Gss_tf)
+        disp('A = ')
+        disp(A)
 
+        disp('B = ')
+        disp(B)
 
+        disp('C = ')
+        disp(C)
 
-        %% =====================================================
-        %          POLES / NATURAL DYNAMICS
-        % ======================================================
+        disp('D = ')
+        disp(D)
+
 
         disp(' ')
-        disp('POLES OF TRANSFER FUNCTION MODEL:')
+        disp('POLES')
+        disp('------------------------------------------------------')
 
-        disp(pole(Gest))
+        disp('TF poles:')
+        disp(poles_tf)
 
-
-        disp(' ')
-        disp('POLES OF STATE-SPACE MODEL:')
-
-        disp(pole(Gss))
-
-
+        disp('SS poles:')
+        disp(poles_ss)
 
     end
 
 end
 
 
-
 %% =============================================================
-%              SUMMARY OF IDENTIFICATION RESULTS
+%              SAVE COMPLETE RESULTS
 % =============================================================
+
+save(...
+    'system_identification_results.mat',...
+    'results',...
+    'Gest_all',...
+    'Gss_all',...
+    'fit_tf_all',...
+    'fit_ss_all',...
+    'center',...
+    'c_angle',...
+    'd_angle',...
+    'dTorque',...
+    'r',...
+    'p',...
+    'rm',...
+    'rm_perc',...
+    'R2',...
+    'gain_plateau',...
+    'rmse_plateau',...
+    'rmse_edge')
+
 
 disp(' ')
 disp('======================================================')
-disp('              IDENTIFICATION SUMMARY')
+disp('IDENTIFICATION COMPLETE')
 disp('======================================================')
 
-
-for i = 1:length(id)
-
-    for seg = 1:num_segments
-
-        disp([...
-            'Experiment ',id(i,:),...
-            ', Segment ',num2str(seg),...
-            ': TF fit = ',...
-            num2str(fit_tf_all(i,seg)),...
-            ' %, SS fit = ',...
-            num2str(fit_ss_all(i,seg)),...
-            ' %'])
-
-    end
-
-end
-
+disp('Results saved to:')
+disp('system_identification_results.mat')
 
 
 %% =============================================================
-%                 FUNCTION: EXTRACT 5 PERIODS
+%              FUNCTION: EXTRACT 5 PERIODS
 % =============================================================
 
 function [segment,...
@@ -839,6 +1020,7 @@ t_segment = ...
     t(idx_start:idx_end);
 
 end
+```
 
 
 
