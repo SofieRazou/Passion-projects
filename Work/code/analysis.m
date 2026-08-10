@@ -2,9 +2,6 @@ clear
 close all
 clc
 
-% load('exp103-109_distance.mat')
-% id=['109';'108';'103';'104';'105';'106';'107'];
-
 % Load all variables directly into a data structure
 exp_file_data = load('exp_distance.mat');
 
@@ -23,6 +20,9 @@ for i = 1:size(id,1)
     
     data     = exp_file_data.(data_field_name);
     t_change = exp_file_data.(t_change_field_name);
+    
+    % Ensure t_change is a clean row vector for xline
+    t_change = t_change(:)'; 
     
     time  = data(:,1);
     angle = data(:,4);      % encoder position (deg)
@@ -61,19 +61,19 @@ for i = 1:size(id,1)
     subplot(3,1,2)
     plot(time, angle, 'LineWidth', 1)
     hold on
-    xline(t_change)
+    xline(t_change, '--k') % FIXED FOR R2020b
     ylabel("angle (deg)")
     
     subplot(3,1,1)
     plot(time, torque_sent, 'Color', [.4 .4 .4], 'LineWidth', 1)
     hold on
-    xline(t_change)
+    xline(t_change, '--k') % FIXED FOR R2020b
     ylabel("commanded torque (Nm)")
     
     subplot(3,1,3)
     plot(time, filtered_torque_load - load_preload + torque_preload, 'Color', [.8 .3 .2], 'LineWidth', 1)
     hold on
-    xline(t_change)
+    xline(t_change, '--k') % FIXED FOR R2020b
     xlabel("time (s)")
     ylabel("load cell torque (Nm)")
     
