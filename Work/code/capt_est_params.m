@@ -1,3 +1,10 @@
+Error using InputOutputModel/subsasgn (line 57)
+Too many input arguments.
+
+Error in capt_est_params (line 68)
+    init_sys.Structure.Parameters(2).Minimum = 0; % k_min >= 0
+ 
+
 clear
 close all
 clc
