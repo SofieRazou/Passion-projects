@@ -60,21 +60,21 @@ for s = 1:num_total_segments
     % ----------------------------------------------------------
     p_init = [0.1; 1.0]; % Initial guesses: [b_guess; k_guess]
     
-    % --- FIX HERE: Use function handle @motor_ode instead of string 'motor_ode' ---
+    % Line 57 Fix: Function handle with 6-output ODE function
     init_sys = idgrey(@motor_ode, p_init, 'c', J_known);
     
     % Enforce physical bounds: b >= 0, k >= 0
-    init_sys.Structure.parameters(1).Minimum = 0; % b_min
-    init_sys.Structure.parameters(2).Minimum = 0; % k_min
+    init_sys.Structure.Parameters(1).Minimum = 0; % b_min
+    init_sys.Structure.Parameters(2).Minimum = 0; % k_min
     
-    % Estimate physical parameters using greyest
+    % Line 67: Estimate physical parameters using greyest
     opt = greyestOptions('Display', 'off');
     opt.SearchMethod = 'lm'; % Levenberg-Marquardt optimizer
     
     G_grey = greyest(data_id, init_sys, opt);
     
-    % Extract estimated parameters directly
-    p_est = G_grey.Report.Parameters.ParVector;
+    % Extract estimated parameters cleanly using getpvec
+    p_est = getpvec(G_grey);
     b_est = p_est(1);
     k_est = p_est(2);
     
@@ -117,7 +117,7 @@ fprintf('Average Model Fit    : %.2f%%\n', mean(fit_gb_all));
 %% =============================================================
 %             GREY-BOX LOCAL ODE MATRIX FUNCTION
 % =============================================================
-function [A, B, C, D] = motor_ode(p, Ts, aux)
+function [A, B, C, D, K, X0] = motor_ode(p, Ts, aux)
     % p(1) = b (damping)
     % p(2) = k (stiffness)
     % aux  = J (inertia)
@@ -135,4 +135,10 @@ function [A, B, C, D] = motor_ode(p, Ts, aux)
     C = [ 1   ,   0  ];
     
     D = 0;
+    
+    % K: Noise coupling matrix (2x1 for 2 states, 1 output)
+    K = zeros(2, 1);
+    
+    % X0: Initial state vector (2x1)
+    X0 = zeros(2, 1);
 end
