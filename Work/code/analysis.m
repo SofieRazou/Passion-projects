@@ -4,7 +4,10 @@ clc
 
 % load('exp103-109_distance.mat')
 % id=['109';'108';'103';'104';'105';'106';'107'];
-load('exp_distance.mat')
+
+% Load all variables directly into a data structure
+exp_file_data = load('exp_distance.mat');
+
 id = ['100';'116';'098';'097';'095';'090';'085';'093';'092'];
 
 % Initialize matrix to accumulate sorted data across experiments/segments
@@ -13,10 +16,15 @@ exp_sorted = [];
 %% Loop through experiments
 for i = 1:size(id,1)
     experiment_id = id(i,:);
-    eval(strcat('data=exp',experiment_id,';'))
-    eval(strcat('t_change = t_change',experiment_id,';')) 
     
-    time = data(:,1);
+    % Access dynamic fields safely without using eval()
+    data_field_name     = ['exp', experiment_id];
+    t_change_field_name = ['t_change', experiment_id];
+    
+    data     = exp_file_data.(data_field_name);
+    t_change = exp_file_data.(t_change_field_name);
+    
+    time  = data(:,1);
     angle = data(:,4);      % encoder position (deg)
     c_idx = [5 7 9 8];      % force torque_sent iA_sent iB_sent
     
@@ -86,7 +94,7 @@ for i = 1:size(id,1)
         % Cutting 5 periods based on sent torque
         [seg_sent, seg_time, i_start, i_end] = extract_5_periods(seg_t, seg_torque_sent);
         
-        % Absolute indexing fix for signal segments
+        % Global indexing for segment signals
         idx_global_start = i_start0 + i_start - 1;
         idx_global_end   = i_start0 + i_end - 1;
         
