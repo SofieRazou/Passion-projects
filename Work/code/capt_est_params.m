@@ -1,10 +1,3 @@
-Error using InputOutputModel/subsasgn (line 57)
-Too many input arguments.
-
-Error in capt_est_params (line 68)
-    init_sys.Structure.Parameters(2).Minimum = 0; % k_min >= 0
- 
-
 clear
 close all
 clc
@@ -12,7 +5,7 @@ clc
 %% =============================================================
 %                  KNOWN PHYSICAL PARAMETERS
 % =============================================================
-J_known = 0.0103; % Motor inertia [kg*m^2] (Fixed Auxiliary Parameter)
+J_known = 0.0103; % Motor inertia [kg*m^2]
 
 %% =============================================================
 %                   LOAD AND PREPARE DATA
@@ -70,9 +63,9 @@ for s = 1:num_total_segments
     % Construct idgrey model structure
     init_sys = idgrey(@motor_ode, p_init, 'c', J_known);
     
-    % FIX: Capital 'P' in Parameters to prevent subasgn error
-    init_sys.Structure.Parameters(1).Minimum = 0; % b_min >= 0
-    init_sys.Structure.Parameters(2).Minimum = 0; % k_min >= 0
+    % --- FIX FOR LINE 68: Use setpar to assign bounds safely ---
+    % Enforce non-negative physical bounds (b >= 0, k >= 0)
+    init_sys = setpar(init_sys, 'Min', [0; 0]); 
     
     % Estimate physical parameters using greyest
     opt = greyestOptions('Display', 'off');
