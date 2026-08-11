@@ -17,5 +17,6 @@ end
 
 end
 
+https://de.mathworks.com/help/vdynblks/ug/two-axle-tractor-towing-a-two-axle-trailer.html
 
 https://de.mathworks.com/help/driving/ref/simulation3dvehiclewithgroundfollowing.html
