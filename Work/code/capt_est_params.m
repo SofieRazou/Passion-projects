@@ -231,3 +231,76 @@ fprintf('\n--- OVERALL AVERAGES ACROSS %d SEGMENTS ---\n', num_total_segments);
 fprintf('Average Stiffness (k): %.4f N*m/rad\n', mean(k_est_all));
 fprintf('Average Damping (b)  : %.6f N*m*s/rad\n', mean(b_est_all));
 fprintf('Average Model Fit R^2: %.2f%%\n', mean(r2_all));
+
+
+for s = 1:num_total_segments
+    % Extract current segment
+    idx         = start_indices(s):end_indices(s);
+    seg_angle   = exp_sorted(idx, 1); 
+    seg_load    = exp_sorted(idx, 2); 
+    seg_time    = exp_sorted(idx, 3); 
+    
+    Ts = mean(diff(seg_time));
+    Fs = 1/Ts; % Sampling Frequency [Hz]
+    
+    % Zero-mean signals
+    tau   = detrend(seg_load(:));
+    theta = detrend(deg2rad(seg_angle(:)));
+    
+    % Check sign convention
+    corr_val = corr(tau, theta);
+    if corr_val < 0
+        theta = -theta;
+    end
+    
+    % ----------------------------------------------------------
+    % FIND MAX FREQUENCY (f_max) USING FFT FOR THIS SEGMENT
+    % ----------------------------------------------------------
+    N = length(tau);
+    Y = fft(tau);
+    f_vec = (0:N-1)*(Fs/N);
+    power_spec = abs(Y).^2 / N;
+    
+    % Look at positive frequencies up to Nyquist limit (Fs/2)
+    half_idx = 1:floor(N/2);
+    pos_freqs = f_vec(half_idx);
+    pos_power = power_spec(half_idx);
+    
+    % Find highest frequency component before power drops to noise floor
+    % (Threshold: e.g., 1% of the peak power content)
+    noise_threshold = max(pos_power) * 0.01;
+    active_freqs = pos_freqs(pos_power > noise_threshold);
+    f_max = max(active_freqs);
+    
+    fprintf('Segment %d: Estimated f_max = %.2f Hz\n', s, f_max);
+    
+    % ----------------------------------------------------------
+    % ADAPTIVE LOW-PASS FILTER (e.g., set fc slightly above f_max)
+    % ----------------------------------------------------------
+    % Ensure fc doesn't exceed Nyquist and stays practical
+    fc = min(f_max * 1.5, Fs / 2.1); 
+    
+    [b_flt, a_flt] = butter(2, fc / (Fs / 2), 'low');
+    
+    tau_flt   = filtfilt(b_flt, a_flt, tau);
+    theta_flt = filtfilt(b_flt, a_flt, theta);
+    
+    % Compute velocity (theta_dot)
+    dtheta = gradient(theta_flt) / Ts;
+    
+    % Rest of your least squares code...
+    X_reg = [theta_flt, dtheta];
+    params = lsqnonneg(X_reg, tau_flt);
+    
+    k_est = params(1); 
+    b_est = params(2); 
+    
+    tau_pred = X_reg * params;
+    SS_res = sum((tau_flt - tau_pred).^2);
+    SS_tot = sum((tau_flt - mean(tau_flt)).^2);
+    R2 = (1 - (SS_res / SS_tot)) * 100;
+    
+    k_est_all(s) = k_est;
+    b_est_all(s) = b_est;
+    r2_all(s)    = R2;
+end
