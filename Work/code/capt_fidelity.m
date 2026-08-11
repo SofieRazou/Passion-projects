@@ -23,18 +23,15 @@ clear
 close all
 clc
 
-% Configure the UDP Receiver object to listen on port 50000
-% (Allows up to 1024 bytes per message packet)
+% 1. Configure UDP Receiver using dsp.UDPReceiver (R2020b compatible, no toolboxes needed)
 localPort = 50000;
 udpRx = dsp.UDPReceiver('LocalIPPort', localPort, ...
                         'MaximumMessageLength', 1024, ...
                         'MessageDataType', 'uint8');
-
-% Setup/initialize the receiver buffer
 setup(udpRx);
 
 disp('========================================================');
-disp(' Listening for dSPACE UDP packets on port 50000...      ');
+disp(' Listening for dSPACE UDP data stream on port 50000...  ');
 disp(' Press Ctrl+C in the command window to stop.            ');
 disp('========================================================');
 
@@ -42,38 +39,32 @@ time_data = [];
 angle_data = [];
 torque_data = [];
 
-figure('Name', 'Live dSPACE UDP Receiver', 'Position', [100, 100, 800, 500]);
+fig = figure('Name', 'Live dSPACE Data Receiver', 'Position', [100, 100, 800, 500]);
 
 try
     while true
-        % Receive raw packet data bytes from the network
         rawBytes = udpRx();
         
         if ~isempty(rawBytes)
-            % Convert byte array to character string
             rawString = char(rawBytes');
-            
-            % Decode the JSON packet sent by Python
             dataPacket = jsondecode(rawString);
             
             t_elapsed = dataPacket.elapsed_time;
             angle_val = dataPacket.Out1;
             torque_val = dataPacket.Torque;
             
-            % Store data for plotting
             time_data(end+1, 1) = t_elapsed;
             angle_data(end+1, 1) = angle_val;
             torque_data(end+1, 1) = torque_val;
             
             fprintf('Time: %.2fs | Angle: %.4f | Torque: %.4f\n', t_elapsed, angle_val, torque_val);
             
-            % Live plot update
             if length(time_data) > 1
                 subplot(2,1,1);
                 plot(time_data, angle_data, 'b-', 'LineWidth', 1.2);
                 grid on;
                 ylabel('Angle / Out1');
-                title('Live dSPACE UDP Stream');
+                title('Live dSPACE Data Stream');
                 
                 subplot(2,1,2);
                 plot(time_data, torque_data, 'r-', 'LineWidth', 1.2);
@@ -87,10 +78,31 @@ try
     end
 
 catch ME
-    disp('Receiver stopped by user.');
-    disp(ME.message);
+    disp('Receiver stopped by user. Processing final Bode plot...');
 end
 
-% Release the UDP resource properly
+% Release the UDP resource
 release(udpRx);
-disp('UDP receiver released successfully.');
+disp('UDP receiver closed.');
+
+% 2. Post-processing: Build Bode Plot from recorded data
+if length(time_data) > 10
+    % Calculate uniform sample time (assuming average delta time)
+    Ts = mean(diff(time_data));
+    
+    % Create an iddata object (Input: Torque, Output: Angle/Out1)
+    % Note: Ensure your input/output mapping matches your physical setup 
+    data = iddata(angle_data, torque_data, Ts);
+    
+    % Estimate a simple transfer function model (e.g., 2 poles, 1 zero)
+    sys = tfest(data, 2, 1);
+    
+    % Generate the Bode Plot in a new figure window
+    figure('Name', 'System Identification - Bode Plot', 'Position', [200, 200, 700, 500]);
+    bode(sys);
+    grid on;
+    title('Bode Plot of Identified dSPACE System');
+    disp('Bode plot generated successfully.');
+else
+    disp('Not enough data collected to generate a reliable Bode plot.');
+end
