@@ -137,3 +137,47 @@ if length(time_data) > 10
 else
     disp('Not enough data collected to generate reliable Bode plots.');
 end
+% =============================================================
+% 3. DIRECT NON-PARAMETRIC BODE PLOT (Angle & Torque Measurements Only)
+% =============================================================
+if length(time_data) > 20
+    % Calculate uniform sample time
+    dt = mean(diff(time_data));
+    Fs = 1 / dt; % Sampling frequency
+    
+    % Detrend data to remove any DC biases or offsets
+    torque_clean = detrend(torque_data);
+    angle_clean = detrend(angle_data);
+    
+    % Compute direct Frequency Response Estimate (FRF) using Welch's method
+    % This divides the angle/torque data into windows to calculate the direct ratio
+    [H, freq_vector] = tfestimate(torque_clean, angle_clean, [], [], [], Fs);
+    
+    % Convert frequency vector from Hz to rad/s for standard Bode plotting
+    omega = freq_vector * 2 * pi;
+    
+    % Convert magnitude to decibels (dB) and phase to degrees
+    mag_dB = 20 * log10(abs(H));
+    phase_deg = unwrap(angle(H)) * (180 / pi);
+    
+    % Plot the Direct Measured Bode Diagram
+    figure('Name', 'Direct Measured Bode Plot (Angle vs Torque)', 'Position', [200, 200, 700, 600]);
+    
+    subplot(2,1,1);
+    semilogx(omega, mag_dB, 'b-', 'LineWidth', 1.5);
+    grid on;
+    grid minor;
+    ylabel('Magnitude (dB)');
+    title('Direct Empirical Bode Plot from Measured Angle & Torque');
+    
+    subplot(2,1,2);
+    semilogx(omega, phase_deg, 'r-', 'LineWidth', 1.5);
+    grid on;
+    grid minor;
+    xlabel('Frequency (rad/s)');
+    ylabel('Phase (deg)');
+    
+    disp('Direct non-parametric Bode plot generated successfully from raw measurements.');
+else
+    disp('Not enough data collected to generate a reliable direct Bode plot.');
+end
