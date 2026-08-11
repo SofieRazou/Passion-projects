@@ -25,7 +25,7 @@ b_est_all  = zeros(num_total_segments, 1);
 k_est_all  = zeros(num_total_segments, 1);
 r2_all     = zeros(num_total_segments, 1);
 
-% Cell arrays to store filtered data and parameters for cross-validation later
+% Cell arrays to store filtered data and parameters
 seg_data_cell = cell(num_total_segments, 1);
 params_cell   = cell(num_total_segments, 1);
 
@@ -33,14 +33,13 @@ params_cell   = cell(num_total_segments, 1);
 %          LOOP 1: ESTIMATE PARAMETERS PER SEGMENT (WITH F_MAX)
 % =============================================================
 for s = 1:num_total_segments
-    % Extract current segment
     idx         = start_indices(s):end_indices(s);
-    seg_angle   = exp_sorted(idx, 1); % Column 1: Angle (deg)
-    seg_load    = exp_sorted(idx, 2); % Column 2: Measured Torque (Nm)
-    seg_time    = exp_sorted(idx, 3); % Column 3: Time (s)
+    seg_angle   = exp_sorted(idx, 1); 
+    seg_load    = exp_sorted(idx, 2); 
+    seg_time    = exp_sorted(idx, 3); 
     
     Ts = mean(diff(seg_time));
-    Fs = 1/Ts; % Sampling Frequency [Hz]
+    Fs = 1/Ts; 
     
     % Zero-mean signals
     raw_tau   = detrend(seg_load(:));
@@ -49,15 +48,13 @@ for s = 1:num_total_segments
     tau   = raw_tau - mean(raw_tau);
     theta = raw_theta - mean(raw_theta);
     
-    % Check sign convention (Phase/Direction Alignment)
+    % Check sign convention
     corr_val = corr(tau, theta);
     if corr_val < 0
         theta = -theta;
     end
     
-    % ----------------------------------------------------------
-    % FIND MAX FREQUENCY (f_max) USING FFT FOR THIS SEGMENT
-    % ----------------------------------------------------------
+    % Find max frequency (f_max) using FFT
     N = length(tau);
     Y = fft(tau);
     f_vec = (0:N-1)*(Fs/N);
@@ -72,13 +69,11 @@ for s = 1:num_total_segments
     if ~isempty(active_freqs)
         f_max = max(active_freqs);
     else
-        f_max = 0.5; % fallback
+        f_max = 0.5; 
     end
     
-    % ----------------------------------------------------------
-    % ADAPTIVE LOW-PASS FILTER (Zero Phase Lag)
-    % ----------------------------------------------------------
-    fc = max(f_max * 1.5, 1.0); % Ensure at least 1.0 Hz floor for ultra-low dynamics
+    % Adaptive low-pass filter
+    fc = max(f_max * 1.5, 1.0); 
     if fc >= (Fs / 2)
         fc = (Fs / 2) * 0.9; 
     end
@@ -88,120 +83,78 @@ for s = 1:num_total_segments
     tau_flt   = filtfilt(b_flt, a_flt, tau);
     theta_flt = filtfilt(b_flt, a_flt, theta);
     
-    % Compute velocity (theta_dot)
     dtheta = gradient(theta_flt) / Ts;
     
-    % ----------------------------------------------------------
-    % NON-NEGATIVE LEAST SQUARES (lsqnonneg)
-    % ----------------------------------------------------------
+    % Non-negative least squares
     X_reg = [theta_flt, dtheta];
     params = lsqnonneg(X_reg, tau_flt);
     
-    k_est = params(1); % Stiffness [Nm/rad]
-    b_est = params(2); % Damping [Nms/rad]
+    k_est = params(1); 
+    b_est = params(2); 
     
-    % Predict torque and calculate Goodness of Fit (R^2)
     tau_pred = X_reg * params;
     SS_res = sum((tau_flt - tau_pred).^2);
     SS_tot = sum((tau_flt - mean(tau_flt)).^2);
     R2 = (1 - (SS_res / SS_tot)) * 100;
     
-    % Store metrics and save data objects for cross-validation
     k_est_all(s) = k_est;
     b_est_all(s) = b_est;
     r2_all(s)    = R2;
     
     params_cell{s}   = params;
     seg_data_cell{s} = struct('time', seg_time, 'theta', theta_flt, 'dtheta', dtheta, 'tau', tau_flt);
-    
-    % Plot response for current segment
-    figure('Name', sprintf('Segment %d Alignment & Fit', s));
-    subplot(2,1,1);
-    plot(seg_time, tau_flt, 'b', 'LineWidth', 1.5); hold on;
-    plot(seg_time, tau_pred, 'r--', 'LineWidth', 1.5);
-    grid on;
-    ylabel('Torque [Nm]');
-    legend('Measured Torque', 'Model Prediction', 'Location', 'Best');
-    title(sprintf('Segment %d Fit: k = %.2f, b = %.4f (R^2 = %.1f%%, fc = %.2fHz)', ...
-        s, k_est, b_est, R2, fc));
-        
-    subplot(2,1,2);
-    plot(seg_time, theta_flt, 'k', 'LineWidth', 1.5);
-    grid on;
-    xlabel('Time [s]');
-    ylabel('Angle [rad]');
-    drawnow;
 end
 
 %% =============================================================
-%                   PRINT SUMMARY RESULTS
-% =============================================================
-Segment_ID   = (1:num_total_segments)';
-SummaryTable = table(Segment_ID, k_est_all, b_est_all, r2_all, ...
-    'VariableNames', {'Segment', 'Stiffness_k_Nm_rad', 'Damping_b_Nms_rad', 'R2_Fit_Percent'});
-
-disp('========================================================================');
-disp('          PHYSICALLY BOUNDED (NON-NEGATIVE) ESTIMATION RESULTS          ');
-disp('========================================================================');
-disp(SummaryTable);
-
-fprintf('\n--- OVERALL AVERAGES ACROSS %d SEGMENTS ---\n', num_total_segments);
-fprintf('Average Stiffness (k): %.4f N*m/rad\n', mean(k_est_all));
-fprintf('Average Damping (b)  : %.6f N*m*s/rad\n', mean(b_est_all));
-fprintf('Average Model Fit R^2: %.2f%%\n', mean(r2_all));
-
-%% =============================================================
-%    CROSS-VALIDATION: TEST A RANDOM MODEL ON ALL OTHER INPUTS
+%    CROSS-VALIDATION: UNIQUE NON-REPEATED PAIRWISE TESTING
 % =============================================================
 if num_total_segments >= 2
-    % Pick a random source segment index (or explicitly pick one, e.g., Segment 1)
-    rng('shuffle'); % Shuffle random seed
-    source_seg = randi(num_total_segments);
-    
-    k_src = k_est_all(source_seg);
-    b_src = b_est_all(source_seg);
-    params_src = [k_src; b_src];
-    
     fprintf('\n========================================================================\n');
-    fprintf(' CROSS-VALIDATION: Testing Model from Segment %d (k=%.2f, b=%.4f)\n', source_seg, k_src, b_src);
+    fprintf('       NON-REPEATED PAIRWISE CROSS-VALIDATION MATRIX                    \n');
     fprintf('========================================================================\n');
     
-    cross_r2_all = zeros(num_total_segments, 1);
+    % Generate all possible unique pairs (Combinations without replacement)
+    % nchoosek gives every unique unordered pair combination (e.g., [1,2], [1,3], [2,4]...)
+    all_pairs = nchoosek(1:num_total_segments, 2);
     
-    for target_seg = 1:num_total_segments
-        % Pull target segment data
-        t_data = seg_data_cell{target_seg};
+    % Randomly shuffle the order of these pairs so they are non-sequential/random
+    rng('shuffle');
+    shuffled_indices = randperm(size(all_pairs, 1));
+    all_pairs = all_pairs(shuffled_indices, :);
+    
+    % Loop through each random unique pair (Source vs Target)
+    for p = 1:size(all_pairs, 1)
+        src_seg = all_pairs(p, 1);
+        tgt_seg = all_pairs(p, 2);
         
-        % Predict torque using the SOURCE segment's parameters on the TARGET input
+        % Extract parameters from Source Segment
+        params_src = params_cell{src_seg};
+        
+        % Test on Target Segment
+        t_data = seg_data_cell{tgt_seg};
         X_target = [t_data.theta, t_data.dtheta];
         tau_cross_pred = X_target * params_src;
         
-        % Calculate cross-validation R^2
+        % Calculate Cross-Validation R^2
         SS_res_cv = sum((t_data.tau - tau_cross_pred).^2);
         SS_tot_cv = sum((t_data.tau - mean(t_data.tau)).^2);
         cross_R2 = (1 - (SS_res_cv / SS_tot_cv)) * 100;
-        cross_r2_all(target_seg) = cross_R2;
         
-        % Plot cross-validation comparison
-        figure('Name', sprintf('Cross-Validation: Model from Seg %d tested on Seg %d', source_seg, target_seg));
+        % Plot comparison for this unique pair
+        figure('Name', sprintf('Pair Test: Model from Seg %d -> Tested on Seg %d', src_seg, tgt_seg));
         plot(t_data.time, t_data.tau, 'b', 'LineWidth', 1.5); hold on;
-        plot(t_data.time, tau_cross_pred', 'r--', 'LineWidth', 1.5);
+        plot(t_data.time, tau_cross_pred, 'r--', 'LineWidth', 1.5);
         grid on;
         xlabel('Time [s]');
         ylabel('Torque [Nm]');
-        legend('Actual Target Torque', sprintf('Predicted Torque (from Seg %d Model)', source_seg), 'Location', 'Best');
-        title(sprintf('Cross-Validation: Seg %d Model applied to Seg %d (Cross-R^2 = %.1f%%)', ...
-            source_seg, target_seg, cross_R2));
+        legend('Target Actual Torque', sprintf('Predicted Torque (Param from Seg %d)', src_seg), 'Location', 'Best');
+        title(sprintf('Pairwise Test: Model Seg %d applied to Target Seg %d (Cross-R^2 = %.1f%%)', ...
+            src_seg, tgt_seg, cross_R2));
         drawnow;
     end
     
-    % Print cross-validation summary table
-    CrossTable = table((1:num_total_segments)', cross_r2_all, ...
-        'VariableNames', {'Target_Segment', 'Cross_Validation_R2_Percent'});
-    disp(CrossTable);
+    fprintf('Completed %d unique non-repeated pairwise cross-validation tests.\n', size(all_pairs, 1));
 end
-
-
 
 
 
