@@ -18,21 +18,25 @@ bode(sys_k_only);
 grid on;
 title(sprintf('Bode Plot (k = %.2f, b = %.2f)', k_avg, b_avg));
 
-
 clear
 close all
 clc
 
-% 1. Configure UDP Receiver using dsp.UDPReceiver (R2020b compatible, no toolboxes needed)
+% =============================================================
+% 1. CONFIGURE UDP RECEIVER WITH TIMEOUT
+% =============================================================
 localPort = 50000;
+timeoutSeconds = 2.0; % Stop listening if no packets arrive for 2 seconds
+
 udpRx = dsp.UDPReceiver('LocalIPPort', localPort, ...
                         'MaximumMessageLength', 1024, ...
-                        'MessageDataType', 'uint8');
+                        'MessageDataType', 'uint8', ...
+                        'Timeout', timeoutSeconds);
 setup(udpRx);
 
 disp('========================================================');
 disp(' Listening for dSPACE UDP data stream on port 50000...  ');
-disp(' Press Ctrl+C in the command window to stop.            ');
+disp([' (Will automatically timeout after ', num2str(timeoutSeconds), 's of inactivity)']);
 disp('========================================================');
 
 time_data = [];
@@ -43,6 +47,7 @@ fig = figure('Name', 'Live dSPACE Data Receiver', 'Position', [100, 100, 800, 50
 
 try
     while true
+        % Attempts to receive packet; triggers a timeout if silent
         rawBytes = udpRx();
         
         if ~isempty(rawBytes)
@@ -78,31 +83,59 @@ try
     end
 
 catch ME
-    disp('Receiver stopped by user. Processing final Bode plot...');
+    % Catches either manual Ctrl+C or the UDP timeout expiration
+    if contains(ME.message, 'Timeout') || contains(ME.message, 'timed out')
+        disp('--- UDP stream timed out. Automatically proceeding to analysis... ---');
+    else
+        disp(['Receiver stopped: ', ME.message]);
+    end
 end
 
 % Release the UDP resource
 release(udpRx);
 disp('UDP receiver closed.');
 
-% 2. Post-processing: Build Bode Plot from recorded data
+
+% =============================================================
+% 2. THEORETICAL MODEL (k-only Transfer Function)
+% =============================================================
+J_val = 0.0103;            % Fixed motor inertia
+k_avg = 42.95 + 1;         % Average estimated stiffness
+b_avg = 9.1079;
+
+num = [1];
+den = [J_val, b_avg, k_avg]; 
+sys_k_only = tf(num, den);
+
+disp('--- PURE STIFFNESS TRANSFER FUNCTION (b=0 style/Identified) ---');
+disp(sys_k_only);
+
+% Plot Theoretical Bode Diagram
+figure('Name', 'k-Only System Bode Diagram');
+bode(sys_k_only);
+grid on;
+title(sprintf('Theoretical Bode Plot (k = %.2f, b = %.2f)', k_avg, b_avg));
+
+
+% =============================================================
+% 3. EMPIRICAL MODEL (Post-processing Recorded Data)
+% =============================================================
 if length(time_data) > 10
-    % Calculate uniform sample time (assuming average delta time)
+    % Calculate uniform sample time
     Ts = mean(diff(time_data));
     
-    % Create an iddata object (Input: Torque, Output: Angle/Out1)
-    % Note: Ensure your input/output mapping matches your physical setup 
+    % Create an iddata object (Input: Torque, Output: Angle)
     data = iddata(angle_data, torque_data, Ts);
     
-    % Estimate a simple transfer function model (e.g., 2 poles, 1 zero)
-    sys = tfest(data, 2, 1);
+    % Estimate transfer function model from recorded stream
+    sys_empirical = tfest(data, 2, 1);
     
-    % Generate the Bode Plot in a new figure window
-    figure('Name', 'System Identification - Bode Plot', 'Position', [200, 200, 700, 500]);
-    bode(sys);
+    % Generate the Empirical Bode Plot in a new figure window
+    figure('Name', 'System Identification - Empirical Bode Plot', 'Position', [200, 200, 700, 500]);
+    bode(sys_empirical);
     grid on;
-    title('Bode Plot of Identified dSPACE System');
-    disp('Bode plot generated successfully.');
+    title('Bode Plot of Empirical dSPACE System');
+    disp('Empirical Bode plot generated successfully.');
 else
-    disp('Not enough data collected to generate a reliable Bode plot.');
+    disp('Not enough data collected to generate a reliable empirical Bode plot.');
 end
