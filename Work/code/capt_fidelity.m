@@ -23,15 +23,16 @@ clear
 close all
 clc
 
-% 1. Create a byte-type udpport object on IPv4, listening on port 50000
-localPort = 50000;
-u = udpport("byte", "IPV4", "LocalPort", localPort);
+% Clear any lingering port allocations from previous runs
+clear u;
 
-% Configure terminator if your strings end with newline characters ("LF")
-configureTerminator(u, "LF");
+% R2020b Compatible udpport setup
+% We specify the local port explicitly using name-value pairs
+localPort = 50000;
+u = udpport("byte", "LocalPort", localPort);
 
 disp('========================================================');
-disp(' Byte-type udpport receiver active on port 50000...     ');
+disp(' udpport connected successfully on port 50000 (R2020b)  ');
 disp(' Press Ctrl+C in the command window to stop.            ');
 disp('========================================================');
 
@@ -39,24 +40,24 @@ time_data = [];
 angle_data = [];
 torque_data = [];
 
-figure('Name', 'dSPACE Live UDP Data Receiver', 'Position', [100, 100, 800, 500]);
+figure('Name', 'Live dSPACE UDP Stream (R2020b)', 'Position', [100, 100, 800, 500]);
 
 try
     while true
         % Check if bytes are available in the buffer
         if u.NumBytesAvailable > 0
-            % Read an ASCII string line directly using readline
+            % Read string line using built-in readline for byte-type udpport
             rawString = readline(u);
             
             if ~isempty(rawString)
-                % Decode the JSON packet from Python
+                % Decode JSON packet coming from Python
                 dataPacket = jsondecode(rawString);
                 
                 t_elapsed = dataPacket.elapsed_time;
                 angle_val = dataPacket.Out1;
                 torque_val = dataPacket.Torque;
                 
-                % Store data
+                % Store data for plots
                 time_data(end+1, 1) = t_elapsed;
                 angle_data(end+1, 1) = angle_val;
                 torque_data(end+1, 1) = torque_val;
@@ -69,7 +70,7 @@ try
                     plot(time_data, angle_data, 'b-', 'LineWidth', 1.2);
                     grid on;
                     ylabel('Angle / Out1');
-                    title('Live dSPACE Data Stream via byte udpport');
+                    title('Live dSPACE Data Stream (R2020b)');
                     
                     subplot(2,1,2);
                     plot(time_data, torque_data, 'r-', 'LineWidth', 1.2);
@@ -88,6 +89,6 @@ catch ME
     disp(ME.message);
 end
 
-% Clean up the port object
+% Clean up port object
 clear u;
-disp('udpport connection closed successfully.');
+disp('udpport closed.');
