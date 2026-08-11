@@ -7,7 +7,11 @@ exp_file_data = load('exp_distance.mat');
 
 id = ['100';'116';'098';'097';'095';'090';'085';'093';'092'];
 
-% Initialize matrix to accumulate sorted data across experiments/segments
+% Initialize arrays to store estimated parameters per experiment/segment
+k_est_matrix = nan(size(id,1), 5); % Assuming up to 5 segments max
+b_est_matrix = nan(size(id,1), 5);
+r2_matrix    = nan(size(id,1), 5);
+
 exp_sorted = [];
 last_experiment_id = '';
 last_seg_num = 1;
@@ -16,14 +20,11 @@ last_seg_num = 1;
 for i = 1:size(id,1)
     experiment_id = id(i,:);
     
-    % Access dynamic fields safely without using eval()
     data_field_name     = ['exp', experiment_id];
     t_change_field_name = ['t_change', experiment_id];
     
     data     = exp_file_data.(data_field_name);
     t_change = exp_file_data.(t_change_field_name);
-    
-    % Ensure t_change is a clean row vector for xline
     t_change = t_change(:)'; 
     
     time  = data(:,1);
@@ -43,47 +44,18 @@ for i = 1:size(id,1)
         angle = angle - 58.1;
     end
     
-    force       = data(:,c_idx(1));       % load cell recorded force
-    torque_sent = -data(:,c_idx(2))*g;   % commanded torque
-    iA_sent     = data(:,c_idx(3));     % sent current to ch8
-    iB_sent     = data(:,c_idx(4));     % sent current to ch16
+    force         = data(:,c_idx(1));       % load cell recorded force
+    torque_sent   = -data(:,c_idx(2))*g;   % commanded torque
     
     fs = 1/mean(diff(time));
     fc = 20;
-    [b, a] = butter(8, fc/(fs/2), 'low'); % low-pass butterworth filter
+    [b_filt, a_filt] = butter(8, fc/(fs/2), 'low'); 
     
-    torque_load = force * 0.0846;        % torque read by load cell (N) * radius (m)
-    filtered_torque_load = filtfilt(b, a, torque_load); % filtering
+    torque_load = force * 0.0846;           
+    filtered_torque_load = filtfilt(b_filt, a_filt, torque_load); 
     
     torque_preload = mean(torque_sent);
     load_preload   = mean(filtered_torque_load);
-    center(i)      = mean(angle);
-    
-    figure()
-    subplot(3,1,2)
-    plot(time, angle, 'LineWidth', 1)
-    hold on
-    for tc = t_change
-        xline(tc, '--k');
-    end
-    ylabel("angle (deg)")
-    
-    subplot(3,1,1)
-    plot(time, torque_sent, 'Color', [.4 .4 .4], 'LineWidth', 1)
-    hold on
-    for tc = t_change
-        xline(tc, '--k');
-    end
-    ylabel("commanded torque (Nm)")
-    
-    subplot(3,1,3)
-    plot(time, filtered_torque_load - load_preload + torque_preload, 'Color', [.8 .3 .2], 'LineWidth', 1)
-    hold on
-    for tc = t_change
-        xline(tc, '--k');
-    end
-    xlabel("time (s)")
-    ylabel("load cell torque (Nm)")
     
     event_idx = zeros(size(t_change));
     for k = 1:length(t_change)
@@ -91,7 +63,6 @@ for i = 1:size(id,1)
     end
     num_segments = length(event_idx) - 1;
     
-    figure()
     for seg = 1:num_segments
         i_start0 = event_idx(seg);
         i_end0   = event_idx(seg + 1);
@@ -99,90 +70,61 @@ for i = 1:size(id,1)
         seg_t           = time(i_start0:i_end0);
         seg_torque_sent = torque_sent(i_start0:i_end0) - torque_preload;
         
-        % Cutting 5 periods based on sent torque
-        [seg_sent, seg_time, i_start, i_end] = extract_5_periods(seg_t, seg_torque_sent);
+        [seg_sent, ~, i_start, i_end] = extract_5_periods(seg_t, seg_torque_sent);
         
-        % Global indexing for segment signals
         idx_global_start = i_start0 + i_start - 1;
         idx_global_end   = i_start0 + i_end - 1;
         
         seg_load  = filtered_torque_load(idx_global_start:idx_global_end) - load_preload;
         seg_angle = angle(idx_global_start:idx_global_end);
         
-        % Angle analysis
-        c_angle(i,seg) = mean(seg_angle);
-        [pks_max, ~]   = findpeaks(seg_angle);
-        [pks_min, ~]   = findpeaks(-seg_angle);
-        pks_min        = -pks_min;
+        % Prepare signals for System Identification (Convert angle to radians, zero-mean)
+        Ts = mean(diff(seg_t(i_start:i_end)));
+        theta_rad = deg2rad(seg_angle - mean(seg_angle));
+        tau_in    = seg_load - mean(seg_load);
         
-        % Keep 5 largest maxima and 5 lowest minima
-        if length(pks_max) >= 5 && length(pks_min) >= 5
-            pks_max = maxk(pks_max, 5);
-            pks_min = mink(pks_min, 5);
-            d_angle(i,seg) = mean(pks_max) - mean(pks_min);
-        else
-            d_angle(i,seg) = NaN;
-        end
+        % ----------------------------------------------------------
+        % GREY-BOX ESTIMATION FOR THIS SEGMENT
+        % ----------------------------------------------------------
+        % Input to motor plant: Torque (tau_in), Output: Angle (theta_rad)
+        data_id = iddata(theta_rad(:), tau_in(:), Ts);
         
-        dTorque(i,seg) = max(seg_sent) - min(seg_sent);
+        % Initial parameter guesses for [k, b]
+        init_sys = idgrey(@motor_greybox_fcn, {10, 1}, 'c');
+        init_sys.Structure.Parameters(1).Minimum = 0; % k >= 0
+        init_sys.Structure.Parameters(2).Minimum = 0; % b >= 0
         
-        % Correlation coefficient
-        [R, P]   = corrcoef(seg_sent, seg_load);
-        r(i,seg) = R(1,2);
-        p(i,seg) = P(1,2);
+        % Estimate parameters using greyest
+        opt = greyestOptions('Display', 'off');
+        est_sys = greyest(data_id, init_sys, opt);
         
-        % Global RMSE
-        rm(i,seg)      = mean(abs(seg_sent - seg_load));
-        rm_perc(i,seg) = rm(i,seg) / (max(seg_sent) - min(seg_sent));
+        par_vals = getpvec(est_sys);
+        k_est_matrix(i, seg) = par_vals(1);
+        b_est_matrix(i, seg) = par_vals(2);
         
-        % R-squared
-        SS_res    = sum((seg_sent - seg_load).^2);
-        SS_tot    = sum((seg_sent - mean(seg_load)).^2);
-        R2(i,seg) = 1 - SS_res/SS_tot;
+        % Calculate Model Fit (R^2) via simulation
+        sim_data = sim(est_sys, data_id);
+        theta_pred = sim_data.OutputData;
         
-        % RMSE divided between rising/falling and plateaux
-        dx         = gradient(seg_sent);
-        thr        = 0.05 * max(abs(dx(5:end)));
-        is_plateau = abs(dx) < thr;
-        is_edge    = ~is_plateau;
+        SS_res = sum((theta_rad(:) - theta_pred).^2);
+        SS_tot = sum((theta_rad(:) - mean(theta_rad(:))).^2);
+        r2_matrix(i, seg) = (1 - (SS_res / SS_tot)) * 100;
         
-        gain_plateau(i,seg) = sum(seg_load(is_plateau).*seg_sent(is_plateau)) / sum(seg_sent(is_plateau).^2);
-        rmse_plateau(i,seg) = sqrt(mean((seg_load(is_plateau) - seg_sent(is_plateau)).^2));
-        rmse_edge(i,seg)    = sqrt(mean((seg_sent(is_edge) - seg_load(is_edge)).^2));
-        
-        % Append extracted segment data into exp_sorted matrix
-        % Col 1: seg_angle | Col 2: seg_load | Col 3: seg_time
-        current_segment_data = [seg_angle(:), seg_load(:), seg_time(:)];
+        % Append into global sorted struct if needed later
+        current_segment_data = [seg_angle(:), seg_load(:), seg_t(i_start:i_end)(:)];
         exp_sorted = [exp_sorted; current_segment_data];
         
-        % Save latest experiment metadata
         last_experiment_id = experiment_id;
         last_seg_num = seg;
-        
-        subplot(num_segments, 1, seg)
-        plot(seg_time - seg_time(1), seg_sent + torque_preload, 'Color', [.4 .4 .4], 'LineWidth', 1)
-        hold on
-        plot(seg_time - seg_time(1), seg_load + torque_preload, 'Color', [.8 .3 .2], 'LineWidth', 1)
-        xlim([0, seg_time(end) - seg_time(1)])
-        ylabel("shifted torque (Nm)")
-        if seg == 3
-            xlabel("time (s)")
-            title(['center: ', num2str(mean(c_angle(i,:))), ' deg'])
-        end
-        clear R P
     end
 end
 
-%% Save data and variables required by the system identification script
-experiment_id = last_experiment_id;
-seg = last_seg_num;
-
-save('exp_sorted.mat', 'exp_sorted', 'experiment_id', 'seg');
-disp('Saved exp_sorted.mat with parameters successfully!');
+%% Save Data
+save('exp_sorted.mat', 'exp_sorted', 'experiment_id', 'seg', 'k_est_matrix', 'b_est_matrix', 'r2_matrix');
+disp('Grey-box identification completed and results saved successfully!');
 
 %% Subfunction to detect 5 periods
 function [segment, t_segment, idx_start, idx_end] = extract_5_periods(t, signal)
-% EXTRACT_5_PERIODS - Extracts 5 full periods from a trapezoidal wave
 sig_norm = (signal - min(signal)) / (max(signal) - min(signal));
 dt = mean(diff(t));
 dsig = diff(sig_norm) / dt;
@@ -200,11 +142,10 @@ if length(rising_starts) < 7
 end
 
 idx_start = rising_starts(2);
-idx_end   = rising_starts(7) - 1;  % just before the 6th period starts
+idx_end   = rising_starts(7) - 1; 
 segment   = signal(idx_start : idx_end);
 t_segment = t(idx_start : idx_end);
 end
-
 
 
 
