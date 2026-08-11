@@ -16,3 +16,6 @@ if angle == 0
 end
 
 end
+
+
+https://de.mathworks.com/help/driving/ref/simulation3dvehiclewithgroundfollowing.html
