@@ -18,6 +18,7 @@ bode(sys_k_only);
 grid on;
 title(sprintf('Bode Plot (k = %.2f, b = %.2f)', k_avg, b_avg));
 
+
 clear
 close all
 clc
