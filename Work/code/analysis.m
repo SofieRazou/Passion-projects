@@ -146,7 +146,28 @@ idx_end   = rising_starts(7) - 1;
 segment   = signal(idx_start : idx_end);
 t_segment = t(idx_start : idx_end);
 end
+%% =============================================================
+%        CREATE TRANSFER FUNCTION & PLOT BODE DIAGRAM
+% =============================================================
+% Compute average parameters across all segments
+k_avg = mean(k_est_all);
+b_avg = mean(b_est_all);
+J_val = 0.0103; % Your known motor/system inertia
 
+% Define the Transfer Function: Output (Angle) / Input (Torque)
+% Equation: J*s^2 + b*s + k = 1  =>  Theta(s)/Tau(s) = 1 / (J*s^2 + b*s + k)
+num = [1];
+den = [J_val, b_avg, k_avg];
+sys = tf(num, den);
+
+disp('--- FINAL SYSTEM TRANSFER FUNCTION ---');
+disp(sys);
+
+% Plot the Bode Diagram
+figure('Name', 'System Bode Diagram');
+bode(sys);
+grid on;
+title(sprintf('Bode Plot of System (Avg k = %.2f, Avg b = %.4f)', k_avg, b_avg));
 
 
 
