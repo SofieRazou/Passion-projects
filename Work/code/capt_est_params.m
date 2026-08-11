@@ -241,11 +241,14 @@ for s = 1:num_total_segments
     seg_time    = exp_sorted(idx, 3); 
     
     Ts = mean(diff(seg_time));
-    Fs = 1/Ts; % Sampling Frequency [Hz]
+    Fs = 1/Ts; 
     
-    % Zero-mean signals
-    tau   = detrend(seg_load(:));
-    theta = detrend(deg2rad(seg_angle(:)));
+    % Zero-mean signals (explicit DC offset removal)
+    raw_tau   = seg_load(:);
+    raw_theta = deg2rad(seg_angle(:));
+    
+    tau   = raw_tau - mean(raw_tau);
+    theta = raw_theta - mean(raw_theta);
     
     % Check sign convention
     corr_val = corr(tau, theta);
@@ -253,33 +256,8 @@ for s = 1:num_total_segments
         theta = -theta;
     end
     
-    % ----------------------------------------------------------
-    % FIND MAX FREQUENCY (f_max) USING FFT FOR THIS SEGMENT
-    % ----------------------------------------------------------
-    N = length(tau);
-    Y = fft(tau);
-    f_vec = (0:N-1)*(Fs/N);
-    power_spec = abs(Y).^2 / N;
-    
-    % Look at positive frequencies up to Nyquist limit (Fs/2)
-    half_idx = 1:floor(N/2);
-    pos_freqs = f_vec(half_idx);
-    pos_power = power_spec(half_idx);
-    
-    % Find highest frequency component before power drops to noise floor
-    % (Threshold: e.g., 1% of the peak power content)
-    noise_threshold = max(pos_power) * 0.01;
-    active_freqs = pos_freqs(pos_power > noise_threshold);
-    f_max = max(active_freqs);
-    
-    fprintf('Segment %d: Estimated f_max = %.2f Hz\n', s, f_max);
-    
-    % ----------------------------------------------------------
-    % ADAPTIVE LOW-PASS FILTER (e.g., set fc slightly above f_max)
-    % ----------------------------------------------------------
-    % Ensure fc doesn't exceed Nyquist and stays practical
-    fc = min(f_max * 1.5, Fs / 2.1); 
-    
+    % Low-pass filter both signals (using your low f_max derived cutoff, e.g., 1.5 Hz)
+    fc = 1.5; 
     [b_flt, a_flt] = butter(2, fc / (Fs / 2), 'low');
     
     tau_flt   = filtfilt(b_flt, a_flt, tau);
@@ -288,19 +266,60 @@ for s = 1:num_total_segments
     % Compute velocity (theta_dot)
     dtheta = gradient(theta_flt) / Ts;
     
-    % Rest of your least squares code...
-    X_reg = [theta_flt, dtheta];
-    params = lsqnonneg(X_reg, tau_flt);
+    % ----------------------------------------------------------
+    % MASK OUT TRANSIENT DISCONTINUITIES (The Fix)
+    % ----------------------------------------------------------
+    skip_time = 0.5; % Time in seconds to ignore after a change/segment start
+    skip_samples = round(skip_time / Ts);
     
-    k_est = params(1); 
-    b_est = params(2); 
+    if length(tau_flt) > skip_samples + 10
+        fit_idx = (skip_samples + 1):length(tau_flt);
+    else
+        fit_idx = 1:length(tau_flt); % Fallback if segment is too short
+    end
     
-    tau_pred = X_reg * params;
-    SS_res = sum((tau_flt - tau_pred).^2);
-    SS_tot = sum((tau_flt - mean(tau_flt)).^2);
+    % Slice matrices for fitting *only* the stable region
+    X_reg_fit = [theta_flt(fit_idx), dtheta(fit_idx)];
+    tau_fit   = tau_flt(fit_idx);
+    
+    % Constrained least squares on the clean, steady-state data
+    params = lsqnonneg(X_reg_fit, tau_fit);
+    
+    k_est = params(1); % Stiffness [Nm/rad]
+    b_est = params(2); % Damping [Nms/rad]
+    
+    % Predict torque across the FULL segment for plotting visualization
+    X_reg_full = [theta_flt, dtheta];
+    tau_pred = X_reg_full * params;
+    
+    % Calculate R^2 strictly on the fitted region
+    tau_pred_fit = X_reg_fit * params;
+    SS_res = sum((tau_fit - tau_pred_fit).^2);
+    SS_tot = sum((tau_fit - mean(tau_fit)).^2);
     R2 = (1 - (SS_res / SS_tot)) * 100;
     
+    % Store metrics
     k_est_all(s) = k_est;
     b_est_all(s) = b_est;
     r2_all(s)    = R2;
+    
+    % Plot response for current segment
+    figure('Name', sprintf('Segment %d Masked Fit', s));
+    subplot(2,1,1);
+    plot(seg_time, tau_flt, 'b', 'LineWidth', 1.5); hold on;
+    plot(seg_time, tau_pred, 'r--', 'LineWidth', 1.5);
+    % Highlight the masked-out region in light red/gray on the plot
+    xline(seg_time(1) + skip_time, 'k:', 'LineWidth', 1.5, 'Label', 'Fit Start');
+    grid on;
+    ylabel('Torque [Nm]');
+    legend('Measured Torque', 'Model Prediction', 'Location', 'Best');
+    title(sprintf('Segment %d: k = %.2f, b = %.4f (R^2 = %.1f%%)', s, k_est, b_est, R2));
+        
+    subplot(2,1,2);
+    plot(seg_time, theta_flt, 'k', 'LineWidth', 1.5); hold on;
+    xline(seg_time(1) + skip_time, 'k:', 'LineWidth', 1.5);
+    grid on;
+    xlabel('Time [s]');
+    ylabel('Angle [rad]');
+    drawnow;
 end
