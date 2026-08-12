@@ -1,10 +1,9 @@
-MATLAB System block 'SimpleScenarioAndSensorModel3DSimulation/Vehicle To World' error occurred when invoking 'getOutputDataTypeImpl' method of 'driving.scenario.internal.VehicleToWorld'. The error was thrown from '
- 'C:\Program Files\MATLAB\R2020a\toolbox\shared\tracking\blks\+matlabshared\+tracking\+internal\SimulinkBusUtilities.p' at line 0
- 'C:\Program Files\MATLAB\R2020a\toolbox\shared\drivingscenario\+driving\+scenario\+internal\VehicleToWorld.p' at line 0
- 'C:\Program Files\MATLAB\R2020a\toolbox\shared\tracking\blks\+matlabshared\+tracking\+internal\SimulinkBusUtilities.p' at line 0
- 'C:\Program Files\MATLAB\R2020a\toolbox\shared\tracking\blks\+matlabshared\+tracking\+internal\SimulinkBusUtilities.p' at line 0
- 'C:\Program Files\MATLAB\R2020a\toolbox\shared\drivingscenario\+driving\+scenario\+internal\VehicleToWorld.p' at line 0'.
+To convert between 'rad' and 'deg', Simulink performed an automatic unit conversion at input port 1 of 'SimpleScenarioAndSensorModel3DSimulation/Vehicle Body 3DOF Dual Track/Signal Routing/psi'. Open the Model Advisor Report for more details.
+Component:Simulink | Category:Block warning
+An error occurred while running the simulation and the simulation was terminated
 Caused by:
-Bus cannot be propagated for 'SimpleScenarioAndSensorModel3DSimulation/Vehicle To World' 'Input Port 1'. 
-Component:Simulink | Category:Model error
-An error occurred while propagating data type 'double' from 'SimpleScenarioAndSensorModel3DSimulation/Bicycle Kinematic Model', output port 1.
+MATLAB System block 'SimpleScenarioAndSensorModel3DSimulation/CAPTMobile/Simulation 3D Vehicle' error occurred when invoking 'stepImpl' method of 'Simulation3DVehicleTerrainFb'. The error was thrown from '
+ 'C:\Program Files\MATLAB\R2020a\toolbox\shared\sim3dblks\sim3dblks\Simulation3DVehicleTerrainFb.p' at line 0
+ 'C:\Program Files\MATLAB\R2020a\toolbox\shared\sim3dblks\sim3dblks\Simulation3DVehicleTerrainFb.p' at line 0'. 
+The 3D vehicle no longer detects the ground.  Review scene limits or initial position. 
+Component:Simulink | Category:Block error
