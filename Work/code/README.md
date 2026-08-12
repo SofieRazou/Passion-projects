@@ -1,1 +1,3 @@
 https://de.mathworks.com/help/vdynblks/ug/scene-interrogation-reference-application.html
+Incoming buses to block 'SimpleScenarioAndSensorModel3DSimulation/Bus Selector1' have a unit mismatch. The signal at 'Input Port 3' of 'SimpleScenarioAndSensorModel3DSimulation/Vehicle Body 3DOF Dual Track/Signal Routing/Signal Routing Dual/state2bus/Bus Creator11' is of unit 'rad', while its corresponding signal at output port 3 of 'SimpleScenarioAndSensorModel3DSimulation/Bus Selector1' is of unit 'deg'. Units are incompatible due to a difference in scaling factor. Add a Unit Conversion block. Open the Model Advisor Report for more details.
+Component:Simulink | Category:Block warning
