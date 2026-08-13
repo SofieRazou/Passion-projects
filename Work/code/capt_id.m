@@ -1,4 +1,4 @@
-function capt_id      = capt_id
+function [time_data, angle_data, torque_data] = capt_id
 
 % =============================================================
 % 1. PURE STIFFNESS (k-only) THEORETICAL TRANSFER FUNCTION & BODE
@@ -18,89 +18,11 @@ disp(sys_k_only);
 figure('Name', 'k-Only System Bode Diagram');
 bode(sys_k_only);
 grid on;
-title(sprintf('Theoretical Bode Plot (k = %.2f, b = %.2f)', k_avg, b_avg));
+title(sprintf('Theoretical Bode Plot (k = %.2f, b = %.2f)', k_avg, b_avg))
 
 
 % =============================================================
-% 2. CONFIGURE UDP RECEIVER
-% =============================================================
-localPort = 50000;
-udpRx = dsp.UDPReceiver('LocalIPPort', localPort, ...
-                        'MaximumMessageLength', 1024, ...
-                        'MessageDataType', 'uint8');
-setup(udpRx);
-
-disp('========================================================');
-disp(' Listening for dSPACE UDP data stream on port 50000...  ');
-disp(' (Will automatically stop & plot after 2s of silence)   ');
-disp('========================================================');
-
-time_data = [];
-angle_data = [];
-torque_data = [];
-
-fig = figure('Name', 'Live dSPACE Data Receiver', 'Position', [100, 100, 800, 500]);
-
-% Timeout parameters
-inactivityTimeout = 2.0; % Seconds to wait before stopping automatically
-tic;                    % Start inactivity timer
-
-try
-    while true
-        rawBytes = udpRx();
-        
-        if ~isempty(rawBytes)
-            % Reset inactivity timer since a packet just arrived
-            tic; 
-            
-            rawString = char(rawBytes');
-            dataPacket = jsondecode(rawString);
-            
-            t_elapsed = dataPacket.elapsed_time;
-            angle_val = dataPacket.Out1;
-            torque_val = dataPacket.Torque;
-            
-            time_data(end+1, 1) = t_elapsed;
-            angle_data(end+1, 1) = angle_val;
-            torque_data(end+1, 1) = torque_val;
-            
-            fprintf('Time: %.2fs | Angle: %.4f | Torque: %.4f\n', t_elapsed, angle_val, torque_val);
-            
-            if length(time_data) > 1
-                subplot(2,1,1);
-                plot(time_data, angle_data, 'b-', 'LineWidth', 1.2);
-                grid on;
-                ylabel('Angle / Out1');
-                title('Live dSPACE Data Stream');
-                
-                subplot(2,1,2);
-                plot(time_data, torque_data, 'r-', 'LineWidth', 1.2);
-                grid on;
-                xlabel('Elapsed Time [s]');
-                ylabel('Torque [Nm]');
-                
-                drawnow limitrate;
-            end
-        else
-            % Check if we've exceeded the inactivity timeout window
-            if toc > inactivityTimeout
-                disp('--- UDP stream inactivity timeout reached. Processing Bode plots... ---');
-                break;
-            end
-        end
-    end
-
-catch ME
-    disp(['Receiver stopped: ', ME.message]);
-end
-
-% Release the UDP resource
-release(udpRx);
-disp('UDP receiver closed.');
-
-
-% =============================================================
-% 3. EMPIRICAL MODEL & BODE PLOT (Post-processing Recorded Data)
+% EMPIRICAL MODEL & BODE PLOT (Post-processing Recorded Data)
 % =============================================================
 if length(time_data) > 10
     % Calculate uniform sample time
@@ -120,7 +42,7 @@ if length(time_data) > 10
     disp('Empirical Bode plot generated successfully.');
     
     % =============================================================
-    % 4. ACTUAL (THEORETICAL MODEL BASED ON MEASURED DATA) BODE PLOT
+    %ACTUAL (THEORETICAL MODEL BASED ON MEASURED DATA) BODE PLOT
     % =============================================================
     % Build the actual/theoretical transfer function using your physical parameters
     % Input: Torque, Output: Angle
@@ -179,3 +101,4 @@ if length(time_data) > 20
 else
     disp('Not enough data collected to generate a reliable direct Bode plot.');
 end
+
