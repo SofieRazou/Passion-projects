@@ -377,7 +377,6 @@ class SpringPage(QWidget):
 
 
 class StabilityPage(QWidget):
-    """Stability Analysis tab with feature to import and display a photo from the PC."""
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
@@ -404,6 +403,67 @@ class StabilityPage(QWidget):
                     self.image_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
                 ))
                 self.image_label.setStyleSheet("border: none; background: transparent;")
+
+
+class TransferFunctionPage(QWidget):
+    """Dedicated Transfer Function & Frequency Response page for system characterization."""
+    def __init__(self, title_text: str, description_text: str, default_tf_eq: str, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        title = QLabel(title_text)
+        title.setStyleSheet("font-size: 18px; font-weight: bold; color: #ffffff;")
+        
+        desc = QLabel(description_text)
+        desc.setStyleSheet("color: #9ca3af; font-size: 13px;")
+
+        eq_frame = QFrame()
+        eq_frame.setStyleSheet("background-color: #181b22; border: 1px solid #2b313b; border-radius: 6px; padding: 10px;")
+        eq_layout = QVBoxLayout(eq_frame)
+        eq_title = QLabel("System Transfer Function Model: G(s)")
+        eq_title.setStyleSheet("font-weight: bold; color: #60a5fa;")
+        eq_content = QLabel(default_tf_eq)
+        eq_content.setStyleSheet("font-family: Consolas, monospace; font-size: 14px; color: #e1e4e8;")
+        eq_layout.addWidget(eq_title)
+        eq_layout.addWidget(eq_content)
+
+        # Bode Plots (Magnitude & Phase)
+        plot_layout = QHBoxLayout()
+        self.mag_plot = self._create_plot("Bode Magnitude Response", "Gain", "dB")
+        self.phase_plot = self._create_plot("Bode Phase Response", "Phase", "°")
+        
+        plot_layout.addWidget(self.mag_plot)
+        plot_layout.addWidget(self.phase_plot)
+
+        # Generate sample Bode curves
+        frequencies = np.logspace(-1, 3, 200) # 0.1 Hz to 1000 Hz
+        # Simple second-order system approximation
+        omega_n = 25.0
+        zeta = 0.4
+        mag = 20 * np.log10(1.0 / np.sqrt((1 - (frequencies/omega_n)**2)**2 + (2*zeta*frequencies/omega_n)**2))
+        phase = -np.arctan2(2*zeta*(frequencies/omega_n), 1 - (frequencies/omega_n)**2) * (180 / np.pi)
+
+        self.mag_plot.plot(frequencies, mag, pen=pg.mkPen(color=(37, 99, 235), width=2))
+        self.phase_plot.plot(frequencies, phase, pen=pg.mkPen(color=(168, 85, 247), width=2))
+        
+        for p in [self.mag_plot, self.phase_plot]:
+            p.setLogMode(x=True, y=False)
+
+        layout.addWidget(title)
+        layout.addWidget(desc)
+        layout.addWidget(eq_frame)
+        layout.addLayout(plot_layout, 1)
+
+    @staticmethod
+    def _create_plot(title: str, y_label: str, units: str) -> pg.PlotWidget:
+        plot = pg.PlotWidget(title=title)
+        plot.setBackground('#181b22')
+        plot.setLabel("bottom", "Frequency", units="Hz")
+        plot.setLabel("left", y_label, units=units)
+        plot.showGrid(x=True, y=True, alpha=0.15)
+        return plot
 
 
 class TransparencyPage(QWidget):
@@ -656,7 +716,7 @@ class HomePage(QWidget):
         card1 = self._create_info_card("System Status", f"Listening for dSPACE packets on UDP:\n{UDP_IP}:{UDP_PORT}\n\nForwarding Target:\n{ANGLE_FORWARD_IP}:{ANGLE_FORWARD_PORT}")
         card2 = self._create_info_card("Hardware Integration", f"Control Target Address:\n{CONTROL_IP}:{CONTROL_PORT}\n\nMax Wheel Torque Output:\n{MOZA_R5_MAX_TORQUE} Nm (Moza R5)")
         card3 = self._create_info_card("Active Telemetry Signals", f"• Steering Angle: {ANGLE_SIGNAL_NAME}\n• Motor Torque: {TORQUE_SIGNAL_NAME}\n• Phase Currents: {CURRENT_PHASE_1_NAME}, {CURRENT_PHASE_2_NAME}")
-        card4 = self._create_info_card("Analysis Modules", "• Live Signals & Plot Export (.csv)\n• Stability Photo Import & Review\n• Real-Time Transparency Metrics\n• Virtual Spring Dynamic Simulator")
+        card4 = self._create_info_card("Analysis Modules", "• Live Signals & Plot Export (.csv)\n• Stability Photo Import & Review\n• Real-Time Transparency Metrics\n• Virtual Spring Dynamic Simulator\n• Transfer Function Frequency Analyses")
 
         grid_layout.addWidget(card1, 0, 0)
         grid_layout.addWidget(card2, 0, 1)
@@ -729,14 +789,26 @@ class MainWindow(QMainWindow):
         self.spring_page = SpringPage()
         self.stability_page = StabilityPage()
         self.transparency_page = TransparencyPage()
+        
+        # New Transfer Function Pages
+        self.capt_tf_page = TransferFunctionPage(
+            "CAPT Motor Characterisation Transfer Function",
+            "Frequency response analysis modeling closed-loop actuation dynamics of the custom CAPT motor.",
+            "H_CAPT(s) = \\frac{K_m}{\\tau s + 1} \\cdot \\frac{\\omega_n^2}{s^2 + 2\\zeta\\omega_n s + \\omega_n^2}"
+        )
+        self.moza_tf_page = TransferFunctionPage(
+            "Moza R5 Specifications & Transfer Function",
+            "Direct-drive steering feedback system characterization, torque bandwidth, and frequency response profile.",
+            "H_Moza(s) = \\frac{T_{max} \\cdot K_{R5}}{J_{eq}s^2 + B_{eq}s + K_{stiff}}"
+        )
 
         tabs = QTabWidget()
         tabs.addTab(self.signal_plot_page, "Live Signals")
         tabs.addTab(HomePage(), "Home")
-        tabs.addTab(HomePage(), "Moza R5 specs")
+        tabs.addTab(self.moza_tf_page, "Moza R5 specs")
         tabs.addTab(self.stability_page, "Stability Analysis")
         tabs.addTab(self.transparency_page, "Transparency Analysis")
-        tabs.addTab(HomePage(), "CAPT Motor Characterisation")
+        tabs.addTab(self.capt_tf_page, "CAPT Motor Characterisation")
         tabs.addTab(self.spring_page, "Virtual Spring Visualization")
         self.setCentralWidget(tabs)
 
