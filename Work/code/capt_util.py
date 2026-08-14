@@ -47,9 +47,63 @@ CURRENT_PHASE_2_NAME = "AO_ch16"
 R5_TORQUE_SIGNAL_NAME = "Moza R5 Torque"
 R5_ANGLE_SIGNAL_NAME = "Moza R5 Angle"
 
+# Placeholder signals for Transparency Analysis tab
+BACK_DRIVABILITY_SIGNAL = "Back-drivability"
+TRANSPARENCY_SIGNAL = "Transparency"
+HAPTIC_FIDELITY_SIGNAL = "Haptic Fidelity"
+
 PLOT_WINDOW_SECONDS = 10.0
 GUI_UPDATE_PERIOD_MS = 20  # 50 Hz UI Refresh Rate
 MOZA_R5_MAX_TORQUE = 5.5  # Nm
+
+# Global Modern Style Sheet (Stylesheet for better looking, rounded buttons)
+MODERN_STYLE_SHEET = """
+QWidget {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    font-size: 13px;
+}
+QPushButton {
+    background-color: #2b5b84;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-weight: 600;
+}
+QPushButton:hover {
+    background-color: #346f9e;
+}
+QPushButton:pressed {
+    background-color: #1f425f;
+}
+QPushButton#ClearButton {
+    background-color: #a83232;
+}
+QPushButton#ClearButton:hover {
+    background-color: #c73c3c;
+}
+QTabWidget::pane {
+    border: 1px solid #dcdcdc;
+    background: #ffffff;
+    border-radius: 4px;
+}
+QTabBar::tab {
+    background: #f0f0f0;
+    color: #333333;
+    padding: 8px 16px;
+    margin-right: 2px;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+}
+QTabBar::tab:selected {
+    background: #2b5b84;
+    color: white;
+    font-weight: 600;
+}
+QLabel {
+    color: #2c2c2c;
+}
+"""
 
 # ---------------------------------------------------------------------------
 # Socket Communication Classes & Background Worker
@@ -300,7 +354,7 @@ class StabilityPage(QWidget):
 
         self.image_label = QLabel("No stability photo loaded. Click below to add one.")
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image_label.setStyleSheet("border: 2px dashed #aaa; color: #666; background: #f9f9f9;")
+        self.image_label.setStyleSheet("border: 2px dashed #aaa; color: #666; background: #f9f9f9; border-radius: 8px;")
         self.image_label.setMinimumHeight(400)
 
         load_button = QPushButton("Load Stability Photo from PC")
@@ -320,6 +374,96 @@ class StabilityPage(QWidget):
                     self.image_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
                 ))
                 self.image_label.setStyleSheet("border: none; background: transparent;")
+
+
+class TransparencyPage(QWidget):
+    """Transparency Analysis tab with live interactive plots for Back-drivability, Transparency, and Haptic Fidelity."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.start_time = time.monotonic()
+        max_pts = int(PLOT_WINDOW_SECONDS * 1000 / GUI_UPDATE_PERIOD_MS) + 100
+
+        self.time_values = deque(maxlen=max_pts)
+        self.back_drivability_values = deque(maxlen=max_pts)
+        self.transparency_values = deque(maxlen=max_pts)
+        self.haptic_fidelity_values = deque(maxlen=max_pts)
+
+        # Plots setup
+        self.back_driv_plot = self._create_plot("Back-Drivability Analysis", "Back-Drivability", "Nm")
+        self.transparency_plot = self._create_plot("Transparency Analysis", "Transparency Index", "")
+        self.fidelity_plot = self._create_plot("Haptic Fidelity Analysis", "Fidelity Score", "%")
+
+        self.back_driv_curve = self.back_driv_plot.plot(pen=pg.mkPen(color=(255, 128, 0), width=2), name=BACK_DRIVABILITY_SIGNAL)
+        self.transparency_curve = self.transparency_plot.plot(pen=pg.mkPen(color=(0, 200, 100), width=2), name=TRANSPARENCY_SIGNAL)
+        self.fidelity_curve = self.fidelity_plot.plot(pen=pg.mkPen(color=(150, 50, 255), width=2), name=HAPTIC_FIDELITY_SIGNAL)
+
+        save_button = QPushButton("Save Transparency Plots")
+        save_button.setObjectName("SaveButton")
+        save_button.clicked.connect(self.save_plots_to_csv)
+
+        top_layout = QHBoxLayout()
+        top_layout.addStretch()
+        top_layout.addWidget(save_button)
+
+        plot_layout = QGridLayout()
+        plot_layout.addWidget(self.back_driv_plot, 0, 0)
+        plot_layout.addWidget(self.transparency_plot, 0, 1)
+        plot_layout.addWidget(self.fidelity_plot, 1, 0, 1, 2)
+
+        layout = QVBoxLayout(self)
+        layout.addLayout(top_layout)
+        layout.addLayout(plot_layout, 1)
+
+    @staticmethod
+    def _create_plot(title: str, y_label: str, units: str) -> pg.PlotWidget:
+        plot = pg.PlotWidget(title=title)
+        plot.setLabel("bottom", "Time", units="s")
+        plot.setLabel("left", y_label, units=units)
+        plot.showGrid(x=True, y=True, alpha=0.25)
+        return plot
+
+    def add_sample(self, torque_val: float, angle_val: float) -> None:
+        """Generates real-time synthetic data placeholders based on active feedback loops until specific signals are mapped."""
+        t = time.monotonic() - self.start_time
+        self.time_values.append(t)
+
+        # Placeholder algorithms modelling metrics until real hardware telemetry signals are configured
+        syn_back_driv = torque_val * 0.85
+        syn_transparency = max(0.0, 1.0 - abs(angle_val) * 0.05)
+        syn_fidelity = min(100.0, max(0.0, 50.0 + torque_val * 10.0))
+
+        self.back_drivability_values.append(syn_back_driv)
+        self.transparency_values.append(syn_transparency)
+        self.haptic_fidelity_values.append(syn_fidelity)
+
+        self._update_curves()
+
+    def _update_curves(self) -> None:
+        if not self.time_values:
+            return
+
+        times = np.fromiter(self.time_values, dtype=float)
+        self.back_driv_curve.setData(times, np.fromiter(self.back_drivability_values, dtype=float))
+        self.transparency_curve.setData(times, np.fromiter(self.transparency_values, dtype=float))
+        self.fidelity_curve.setData(times, np.fromiter(self.haptic_fidelity_values, dtype=float))
+
+        latest_time = times[-1]
+        min_time = max(0.0, latest_time - PLOT_WINDOW_SECONDS)
+        max_time = max(PLOT_WINDOW_SECONDS, latest_time)
+
+        for pw in [self.back_driv_plot, self.transparency_plot, self.fidelity_plot]:
+            pw.setXRange(min_time, max_time, padding=0)
+
+    def save_plots_to_csv(self) -> None:
+        file_path, _ = QFileDialog.getSaveFileName(self, "Save Transparency Data", "transparency_data.csv", "CSV Files (*.csv)")
+        if file_path:
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write("Time(s),BackDrivability,Transparency,HapticFidelity\n")
+                    for t, bd, tr, hf in zip(self.time_values, self.back_drivability_values, self.transparency_values, self.haptic_fidelity_values):
+                        f.write(f"{t:.4f},{bd:.4f},{tr:.4f},{hf:.4f}\n")
+            except Exception as e:
+                print(f"Error saving file: {e}")
 
 
 class SignalPlotPage(QWidget):
@@ -362,10 +506,16 @@ class SignalPlotPage(QWidget):
         self.moza_torque_curve = self.moza_torque_plot.plot(pen=pg.mkPen(color=(64, 224, 208), width=2), name=R5_TORQUE_SIGNAL_NAME)
 
         clear_button = QPushButton("Clear plots")
+        clear_button.setObjectName("ClearButton")
         clear_button.clicked.connect(self.clear)
+
+        save_button = QPushButton("Save Live Data (.csv)")
+        save_button.setObjectName("SaveButton")
+        save_button.clicked.connect(self.save_plots_to_csv)
 
         top_layout = QHBoxLayout()
         top_layout.addLayout(value_layout)
+        top_layout.addWidget(save_button)
         top_layout.addWidget(clear_button)
 
         plot_layout = QGridLayout()
@@ -408,7 +558,6 @@ class SignalPlotPage(QWidget):
         if not self.time_values:
             return
 
-        # Optimized direct NumPy array translation to bypass overhead
         times = np.fromiter(self.time_values, dtype=float)
         
         self.current_1_curve.setData(times, np.fromiter(self.current_1_values, dtype=float))
@@ -424,6 +573,20 @@ class SignalPlotPage(QWidget):
 
         for pw in [self.current_plot, self.torque_plot, self.angle_plot, self.moza_angle_plot, self.moza_torque_plot]:
             pw.setXRange(min_time, max_time, padding=0)
+
+    def save_plots_to_csv(self) -> None:
+        file_path, _ = QFileDialog.getSaveFileName(self, "Save Live Signals Data", "live_signals.csv", "CSV Files (*.csv)")
+        if file_path:
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write("Time(s),Torque,Current1,Current2,AngleRad,MozaAngle,MozaTorque\n")
+                    for t, tr, c1, c2, ang, mang, mtor in zip(
+                        self.time_values, self.torque_values, self.current_1_values, 
+                        self.current_2_values, self.angle_values, self.moza_angle_values, self.moza_torque_values
+                    ):
+                        f.write(f"{t:.4f},{tr:.4f},{c1:.4f},{c2:.4f},{ang:.4f},{mang:.4f},{mtor:.4f}\n")
+            except Exception as e:
+                print(f"Error saving data: {e}")
 
     def clear(self) -> None:
         self.start_time = time.monotonic()
@@ -483,13 +646,14 @@ class MainWindow(QMainWindow):
         self.signal_plot_page = SignalPlotPage()
         self.spring_page = SpringPage()
         self.stability_page = StabilityPage()
+        self.transparency_page = TransparencyPage()
 
         tabs = QTabWidget()
         tabs.addTab(self.signal_plot_page, "Live Signals")
         tabs.addTab(HomePage("CAPT Motor Dashboard"), "Home")
         tabs.addTab(HomePage("Moza R5 specs"), "Moza R5 specs")
         tabs.addTab(self.stability_page, "Stability Analysis")
-        tabs.addTab(QWidget(), "Transparency Analysis")
+        tabs.addTab(self.transparency_page, "Transparency Analysis")
         tabs.addTab(HomePage("CAPT Motor Characterisation Analysis"), "CAPT Motor Characterisation Analysis")
         tabs.addTab(self.spring_page, "Virtual Spring Visualization")
         self.setCentralWidget(tabs)
@@ -545,6 +709,7 @@ class MainWindow(QMainWindow):
             self.latest_angle_moza, self.latest_torque_moza
         )
         self.spring_page.update_measurements(self.latest_angle_rad, self.latest_torque)
+        self.transparency_page.add_sample(self.latest_torque, self.latest_angle_rad)
         self._update_connection_status()
 
     @staticmethod
@@ -577,6 +742,7 @@ class MainWindow(QMainWindow):
 
 def main() -> None:
     app = QApplication(sys.argv)
+    app.setStyleSheet(MODERN_STYLE_SHEET)
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
