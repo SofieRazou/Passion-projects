@@ -49,7 +49,6 @@ CURRENT_PHASE_2_NAME = "AO_ch16"
 R5_TORQUE_SIGNAL_NAME = "Moza R5 Torque"
 R5_ANGLE_SIGNAL_NAME = "Moza R5 Angle"
 
-# Placeholder signals for Transparency Analysis tab
 BACK_DRIVABILITY_SIGNAL = "Back-drivability"
 TRANSPARENCY_SIGNAL = "Transparency"
 HAPTIC_FIDELITY_SIGNAL = "Haptic Fidelity"
@@ -424,8 +423,10 @@ class TransferFunctionPage(QWidget):
         eq_layout = QVBoxLayout(eq_frame)
         eq_title = QLabel("System Transfer Function Model: G(s)")
         eq_title.setStyleSheet("font-weight: bold; color: #60a5fa;")
+        
         eq_content = QLabel(default_tf_eq)
         eq_content.setStyleSheet("font-family: Consolas, monospace; font-size: 14px; color: #e1e4e8;")
+        
         eq_layout.addWidget(eq_title)
         eq_layout.addWidget(eq_content)
 
@@ -437,9 +438,7 @@ class TransferFunctionPage(QWidget):
         plot_layout.addWidget(self.mag_plot)
         plot_layout.addWidget(self.phase_plot)
 
-        # Generate sample Bode curves
-        frequencies = np.logspace(-1, 3, 200) # 0.1 Hz to 1000 Hz
-        # Simple second-order system approximation
+        frequencies = np.logspace(-1, 3, 200)
         omega_n = 25.0
         zeta = 0.4
         mag = 20 * np.log10(1.0 / np.sqrt((1 - (frequencies/omega_n)**2)**2 + (2*zeta*frequencies/omega_n)**2))
@@ -467,7 +466,6 @@ class TransferFunctionPage(QWidget):
 
 
 class TransparencyPage(QWidget):
-    """Transparency Analysis tab with live interactive plots for Back-drivability, Transparency, and Haptic Fidelity."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.start_time = time.monotonic()
@@ -478,7 +476,6 @@ class TransparencyPage(QWidget):
         self.transparency_values = deque(maxlen=max_pts)
         self.haptic_fidelity_values = deque(maxlen=max_pts)
 
-        # Plots setup
         self.back_driv_plot = self._create_plot("Back-Drivability Analysis", "Back-Drivability", "Nm")
         self.transparency_plot = self._create_plot("Transparency Analysis", "Transparency Index", "")
         self.fidelity_plot = self._create_plot("Haptic Fidelity Analysis", "Fidelity Score", "%")
@@ -709,7 +706,6 @@ class HomePage(QWidget):
         layout.addWidget(title)
         layout.addWidget(subtitle)
 
-        # Overview Grid Cards Container
         grid_layout = QGridLayout()
         grid_layout.setSpacing(15)
 
@@ -790,16 +786,16 @@ class MainWindow(QMainWindow):
         self.stability_page = StabilityPage()
         self.transparency_page = TransparencyPage()
         
-        # New Transfer Function Pages
+        # Fixed Transfer Function string formatting using clean Unicode math symbols
         self.capt_tf_page = TransferFunctionPage(
             "CAPT Motor Characterisation Transfer Function",
             "Frequency response analysis modeling closed-loop actuation dynamics of the custom CAPT motor.",
-            "H_CAPT(s) = \\frac{K_m}{\\tau s + 1} \\cdot \\frac{\\omega_n^2}{s^2 + 2\\zeta\\omega_n s + \\omega_n^2}"
+            "H_CAPT(s) = [ Km / (τ·s + 1) ] · [ ωₙ² / (s² + 2·ζ·ωₙ·s + ωₙ²) ]"
         )
         self.moza_tf_page = TransferFunctionPage(
             "Moza R5 Specifications & Transfer Function",
             "Direct-drive steering feedback system characterization, torque bandwidth, and frequency response profile.",
-            "H_Moza(s) = \\frac{T_{max} \\cdot K_{R5}}{J_{eq}s^2 + B_{eq}s + K_{stiff}}"
+            "H_Moza(s) = [ T_max · K_R5 ] / [ J_eq·s² + B_eq·s + K_stiff ]"
         )
 
         tabs = QTabWidget()
