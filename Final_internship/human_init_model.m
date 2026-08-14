@@ -1,0 +1,37 @@
+function [A,B,C,D,K,x0] = human_init_model(Mh, bh, kh, Ts)
+%HUMAN_INIT_MODEL Human rotational inertia-damping-stiffness model.
+%
+% Inputs:
+%   Mh : human apparent inertia
+%   bh : human damping
+%   kh : human stiffness
+%   Ts : sample time supplied automatically by idgrey
+%
+% Input to model:
+%   human torque
+%
+% Output:
+%   angular position
+
+if Mh <= 0
+    error("Mh must be positive and non-zero.");
+end
+
+A = [0,       1;
+    -kh/Mh, -bh/Mh];
+
+B = [0;
+     1/Mh];
+
+C = [1, 0];
+D = 0;
+
+% No process-noise/disturbance model
+K = zeros(2,1);
+
+% Initial human states: [angle; angular velocity]
+x0 = [0; 0];
+
+% For a continuous-time model, Ts is normally zero.
+% It is still required in the function signature.
+end
