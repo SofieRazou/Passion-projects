@@ -1,0 +1,31 @@
+QMainWindow { background-color: #282c34; }
+            QLabel { 
+                color: #61afef; 
+                font-size: 14pt; 
+                font-weight: bold;
+             }
+            QFrame{background: white;
+                   border: 1px solid #D6D9DE
+                   border-radius: 8px;
+                   }
+
+            QPushButton{
+                background-color: rgb(255,0,245);
+                border-style: outset;
+                border-width: 2px;
+                border-radius: 10px;
+                border-color: beige;
+                font: italian 14px;
+                min-width: 10em;
+                padding: 6px;
+            }
+
+            QToolBar{
+                background-color: rgb(200,0,200);
+                spacing: 6px;
+                padding: 4px;
+                border: none;
+            }
+            QLabel#stability_plot{
+                background-image: url(":C\Users\javot\Desktop\sofia_code\'bode_plot.png");
+            }
