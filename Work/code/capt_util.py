@@ -24,6 +24,8 @@ from PyQt6.QtWidgets import (
     QTabWidget,
     QVBoxLayout,
     QWidget,
+    QScrollArea,
+    QFrame,
 )
 
 # ---------------------------------------------------------------------------
@@ -56,52 +58,79 @@ PLOT_WINDOW_SECONDS = 10.0
 GUI_UPDATE_PERIOD_MS = 20  # 50 Hz UI Refresh Rate
 MOZA_R5_MAX_TORQUE = 5.5  # Nm
 
-# Global Modern Style Sheet (Stylesheet for better looking, rounded buttons)
+# ---------------------------------------------------------------------------
+# Modern Professional Styling Sheet (Sleek Dark/Slate Theme)
+# ---------------------------------------------------------------------------
+
 MODERN_STYLE_SHEET = """
+QMainWindow {
+    background-color: #121418;
+}
 QWidget {
-    font-family: 'Segoe UI', Arial, sans-serif;
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
     font-size: 13px;
+    color: #e1e4e8;
+    background-color: #121418;
+}
+QTabWidget::pane {
+    border: 1px solid #2b313b;
+    background: #181b22;
+    border-radius: 8px;
+}
+QTabBar::tab {
+    background: #1f242d;
+    color: #8b949e;
+    padding: 10px 18px;
+    margin-right: 4px;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    font-weight: 500;
+}
+QTabBar::tab:selected {
+    background: #2563eb;
+    color: #ffffff;
+    font-weight: 600;
+}
+QTabBar::tab:hover:not(:selected) {
+    background: #2d3442;
+    color: #c9d1d9;
 }
 QPushButton {
-    background-color: #2b5b84;
-    color: white;
+    background-color: #2563eb;
+    color: #ffffff;
     border: none;
     border-radius: 6px;
     padding: 8px 16px;
     font-weight: 600;
 }
 QPushButton:hover {
-    background-color: #346f9e;
+    background-color: #1d4ed8;
 }
 QPushButton:pressed {
-    background-color: #1f425f;
+    background-color: #1e40af;
 }
-QPushButton#ClearButton {
-    background-color: #a83232;
+QPushButton#ClearButton, QPushButton#SaveButton {
+    background-color: #374151;
+    color: #f3f4f6;
+    border: 1px solid #4b5563;
 }
-QPushButton#ClearButton:hover {
-    background-color: #c73c3c;
-}
-QTabWidget::pane {
-    border: 1px solid #dcdcdc;
-    background: #ffffff;
-    border-radius: 4px;
-}
-QTabBar::tab {
-    background: #f0f0f0;
-    color: #333333;
-    padding: 8px 16px;
-    margin-right: 2px;
-    border-top-left-radius: 4px;
-    border-top-right-radius: 4px;
-}
-QTabBar::tab:selected {
-    background: #2b5b84;
-    color: white;
-    font-weight: 600;
+QPushButton#ClearButton:hover, QPushButton#SaveButton:hover {
+    background-color: #4b5563;
 }
 QLabel {
-    color: #2c2c2c;
+    color: #e1e4e8;
+}
+QDoubleSpinBox {
+    background-color: #1f242d;
+    border: 1px solid #374151;
+    border-radius: 6px;
+    padding: 4px 8px;
+    color: #ffffff;
+}
+QStatusBar {
+    background: #0d1117;
+    color: #8b949e;
+    border-top: 1px solid #21262d;
 }
 """
 
@@ -218,9 +247,9 @@ class SpringWidget(QWidget):
         self.setMinimumHeight(300)
 
         self._axis_pen = QPen(QColor(140, 140, 140), 1, Qt.PenStyle.DashLine)
-        self._wall_pen = QPen(QColor(70, 70, 70), 5)
-        self._handle_pen = QPen(QColor(30, 90, 180), 8)
-        self._text_color = QColor(40, 40, 40)
+        self._wall_pen = QPen(QColor(100, 110, 120), 5)
+        self._handle_pen = QPen(QColor(37, 99, 235), 8)
+        self._text_color = QColor(225, 228, 232)
 
     def set_angle(self, angle_rad: float) -> None:
         self.angle_rad = angle_rad
@@ -276,7 +305,7 @@ class SpringWidget(QWidget):
 
     @staticmethod
     def _draw_spring(painter: QPainter, start: QPointF, end: QPointF, coils: int, amplitude: float) -> None:
-        painter.setPen(QPen(QColor(50, 50, 50), 3))
+        painter.setPen(QPen(QColor(180, 180, 180), 3))
         lead_length = 20.0
         usable_start_x, usable_end_x = start.x() + lead_length, end.x() - lead_length
 
@@ -302,7 +331,7 @@ class SpringWidget(QWidget):
         if abs(torque) < 1e-6:
             return
         direction = 1 if torque > 0 else -1
-        painter.setPen(QPen(QColor(190, 70, 50), 3))
+        painter.setPen(QPen(QColor(239, 68, 68), 3))
         end = QPointF(origin.x() + direction * 65, origin.y())
         painter.drawLine(origin, end)
         painter.drawLine(end, QPointF(end.x() - direction * 10, end.y() - 10))
@@ -324,6 +353,7 @@ class SpringPage(QWidget):
         self.kappa_input.setSuffix(" Nm/rad")
 
         reset_button = QPushButton("Reset reference")
+        reset_button.setObjectName("ClearButton")
         control_layout = QHBoxLayout()
         control_layout.addWidget(self.angle_label)
         control_layout.addWidget(self.torque_label)
@@ -352,9 +382,9 @@ class StabilityPage(QWidget):
         super().__init__(parent)
         layout = QVBoxLayout(self)
 
-        self.image_label = QLabel("No stability photo loaded. Click below to add one.")
+        self.image_label = QLabel("No stability photo loaded. Click below to import evaluation plots or schematics.")
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image_label.setStyleSheet("border: 2px dashed #aaa; color: #666; background: #f9f9f9; border-radius: 8px;")
+        self.image_label.setStyleSheet("border: 2px dashed #374151; color: #9ca3af; background: #181b22; border-radius: 8px;")
         self.image_label.setMinimumHeight(400)
 
         load_button = QPushButton("Load Stability Photo from PC")
@@ -417,17 +447,16 @@ class TransparencyPage(QWidget):
     @staticmethod
     def _create_plot(title: str, y_label: str, units: str) -> pg.PlotWidget:
         plot = pg.PlotWidget(title=title)
+        plot.setBackground('#181b22')
         plot.setLabel("bottom", "Time", units="s")
         plot.setLabel("left", y_label, units=units)
-        plot.showGrid(x=True, y=True, alpha=0.25)
+        plot.showGrid(x=True, y=True, alpha=0.15)
         return plot
 
     def add_sample(self, torque_val: float, angle_val: float) -> None:
-        """Generates real-time synthetic data placeholders based on active feedback loops until specific signals are mapped."""
         t = time.monotonic() - self.start_time
         self.time_values.append(t)
 
-        # Placeholder algorithms modelling metrics until real hardware telemetry signals are configured
         syn_back_driv = torque_val * 0.85
         syn_transparency = max(0.0, 1.0 - abs(angle_val) * 0.05)
         syn_fidelity = min(100.0, max(0.0, 50.0 + torque_val * 10.0))
@@ -532,9 +561,10 @@ class SignalPlotPage(QWidget):
     @staticmethod
     def _create_plot(title: str, y_label: str, units: str) -> pg.PlotWidget:
         plot = pg.PlotWidget(title=title)
+        plot.setBackground('#181b22')
         plot.setLabel("bottom", "Time", units="s")
         plot.setLabel("left", y_label, units=units)
-        plot.showGrid(x=True, y=True, alpha=0.25)
+        plot.showGrid(x=True, y=True, alpha=0.15)
         return plot
 
     def add_sample(self, angle_rad: float, torque: float, current_1: float, current_2: float, moza_angle: float, moza_torque: float) -> None:
@@ -597,21 +627,73 @@ class SignalPlotPage(QWidget):
 
 
 class HomePage(QWidget):
-    def __init__(self, text: str, parent=None):
+    """Informative, professional dashboard overview home page."""
+    def __init__(self, parent=None):
         super().__init__(parent)
-        title = QLabel(text)
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        instructions = QLabel(
-            "Waiting for UDP data from dSPACE...\n\n"
-            f"UDP Address: {UDP_IP}:{UDP_PORT}\n"
-            f"Forward Address: {ANGLE_FORWARD_IP}:{ANGLE_FORWARD_PORT}\n"
-        )
-        instructions.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout = QVBoxLayout(self)
-        layout.addStretch()
+        
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setSpacing(20)
+
+        title = QLabel("CAPT Motor Real-Time Dashboard")
+        title.setStyleSheet("font-size: 24px; font-weight: bold; color: #ffffff;")
+        
+        subtitle = QLabel("High-performance telemetry, haptic steering characterization, and controller analysis suite.")
+        subtitle.setStyleSheet("font-size: 14px; color: #8b949e;")
+
         layout.addWidget(title)
-        layout.addWidget(instructions)
+        layout.addWidget(subtitle)
+
+        # Overview Grid Cards Container
+        grid_layout = QGridLayout()
+        grid_layout.setSpacing(15)
+
+        card1 = self._create_info_card("System Status", f"Listening for dSPACE packets on UDP:\n{UDP_IP}:{UDP_PORT}\n\nForwarding Target:\n{ANGLE_FORWARD_IP}:{ANGLE_FORWARD_PORT}")
+        card2 = self._create_info_card("Hardware Integration", f"Control Target Address:\n{CONTROL_IP}:{CONTROL_PORT}\n\nMax Wheel Torque Output:\n{MOZA_R5_MAX_TORQUE} Nm (Moza R5)")
+        card3 = self._create_info_card("Active Telemetry Signals", f"• Steering Angle: {ANGLE_SIGNAL_NAME}\n• Motor Torque: {TORQUE_SIGNAL_NAME}\n• Phase Currents: {CURRENT_PHASE_1_NAME}, {CURRENT_PHASE_2_NAME}")
+        card4 = self._create_info_card("Analysis Modules", "• Live Signals & Plot Export (.csv)\n• Stability Photo Import & Review\n• Real-Time Transparency Metrics\n• Virtual Spring Dynamic Simulator")
+
+        grid_layout.addWidget(card1, 0, 0)
+        grid_layout.addWidget(card2, 0, 1)
+        grid_layout.addWidget(card3, 1, 0)
+        grid_layout.addWidget(card4, 1, 1)
+
+        layout.addLayout(grid_layout)
         layout.addStretch()
+
+        scroll.setWidget(content)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(scroll)
+
+    @staticmethod
+    def _create_info_card(title_text: str, body_text: str) -> QFrame:
+        card = QFrame()
+        card.setStyleSheet("""
+            QFrame {
+                background-color: #181b22;
+                border: 1px solid #2b313b;
+                border-radius: 8px;
+                padding: 16px;
+            }
+        """)
+        v_layout = QVBoxLayout(card)
+        
+        t_label = QLabel(title_text)
+        t_label.setStyleSheet("font-size: 15px; font-weight: bold; color: #60a5fa; margin-bottom: 8px;")
+        
+        b_label = QLabel(body_text)
+        b_label.setStyleSheet("font-size: 13px; color: #c9d1d9; line-height: 140%;")
+        b_label.setWordWrap(True)
+
+        v_layout.addWidget(t_label)
+        v_layout.addWidget(b_label)
+        return card
 
 
 # ---------------------------------------------------------------------------
@@ -622,7 +704,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("CAPT Motor Dashboard")
-        self.resize(1100, 800)
+        self.resize(1150, 820)
 
         self.moza_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.wheel = self._init_joystick()
@@ -650,11 +732,11 @@ class MainWindow(QMainWindow):
 
         tabs = QTabWidget()
         tabs.addTab(self.signal_plot_page, "Live Signals")
-        tabs.addTab(HomePage("CAPT Motor Dashboard"), "Home")
-        tabs.addTab(HomePage("Moza R5 specs"), "Moza R5 specs")
+        tabs.addTab(HomePage(), "Home")
+        tabs.addTab(HomePage(), "Moza R5 specs")
         tabs.addTab(self.stability_page, "Stability Analysis")
         tabs.addTab(self.transparency_page, "Transparency Analysis")
-        tabs.addTab(HomePage("CAPT Motor Characterisation Analysis"), "CAPT Motor Characterisation Analysis")
+        tabs.addTab(HomePage(), "CAPT Motor Characterisation")
         tabs.addTab(self.spring_page, "Virtual Spring Visualization")
         self.setCentralWidget(tabs)
 
