@@ -1,6 +1,5 @@
 import json
 import math
-import os
 import socket
 import struct
 import sys
@@ -8,13 +7,14 @@ import time
 from collections import deque
 from threading import Lock
 from typing import Optional
-import psutil  # <--- Added for CPU/thread utilization stats
+import numpy as np
 import pyqtgraph as pg
 import pygame
-from PyQt6.QtCore import QPointF, Qt, QTimer, QThread, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter, QPen, QPolygonF
+from PyQt6.QtCore import QPointF, Qt, QTimer, QThread
+from PyQt6.QtGui import QColor, QPainter, QPen, QPolygonF, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
+    QFileDialog,
     QDoubleSpinBox,
     QGridLayout,
     QHBoxLayout,
@@ -56,6 +56,8 @@ MOZA_R5_MAX_TORQUE = 5.5  # Nm
 # ---------------------------------------------------------------------------
 
 class UdpReceiver:
+    """Non-blocking UDP receiver for dSPACE JSON packets."""
+
     def __init__(self, ip: str, port: int):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -86,6 +88,8 @@ class UdpReceiver:
 
 
 class UdpSender:
+    """UDP sender for forwarding signals."""
+
     def __init__(self, ip: str, port: int, send_as_binary: bool = True):
         self.ip = ip
         self.port = port
@@ -107,29 +111,18 @@ class UdpSender:
 
 
 class UdpWorkerThread(QThread):
-    """Background thread handling high-frequency socket polling with telemetry tracking."""
+    """Background thread handling high-frequency socket polling safely."""
     
     def __init__(self, receiver: UdpReceiver, sender: UdpSender):
         super().__init__()
         self.receiver = receiver
         self.sender = sender
         self._is_running = True
-        
         self.buffer_lock = Lock()
         self.latest_packet: Optional[dict] = None
 
-        # --- Telemetry & Overhead Stats ---
-        self.loop_count = 0
-        self.processing_time_total = 0.0
-        self._thread_cpu_percent = 0.0
-        self._process = psutil.Process(os.getpid())
-
     def run(self) -> None:
-        last_stats_time = time.monotonic()
-        
         while self._is_running:
-            loop_start = time.monotonic()
-            
             packet = self.receiver.read_latest_packet()
             if packet is not None:
                 angle_val = packet.get(ANGLE_SIGNAL_NAME)
@@ -146,35 +139,11 @@ class UdpWorkerThread(QThread):
             else:
                 QThread.msleep(1)
 
-            # Track processing overhead per iteration
-            loop_duration = time.monotonic() - loop_start
-            self.processing_time_total += loop_duration
-            self.loop_count += 1
-
-            # Update CPU usage metrics roughly once per second
-            now = time.monotonic()
-            if now - last_stats_time >= 1.0:
-                try:
-                    # Capture overall process cpu usage as baseline proxy
-                    self._thread_cpu_percent = self._process.cpu_percent(interval=None)
-                except Exception:
-                    pass
-                last_stats_time = now
-
     def get_latest_packet(self) -> Optional[dict]:
         with self.buffer_lock:
             pkt = self.latest_packet
             self.latest_packet = None  
             return pkt
-
-    def get_telemetry_stats(self) -> dict:
-        """Returns thread utilization and timing overhead metrics."""
-        avg_processing_ms = (self.processing_time_total / max(1, self.loop_count)) * 1000.0
-        return {
-            "cpu_percent": self._thread_cpu_percent,
-            "avg_overhead_ms": avg_processing_ms,
-            "total_loops": self.loop_count
-        }
 
     def stop(self) -> None:
         self._is_running = False
@@ -182,7 +151,7 @@ class UdpWorkerThread(QThread):
 
 
 # ---------------------------------------------------------------------------
-# UI Widgets & Visualization Pages (SpringWidget, SpringPage, SignalPlotPage, etc.)
+# UI Widgets & Visualization Pages
 # ---------------------------------------------------------------------------
 
 class SpringWidget(QWidget):
@@ -323,6 +292,36 @@ class SpringPage(QWidget):
         self.torque_label.setText(f"Measured torque: {torque:.3f} Nm")
 
 
+class StabilityPage(QWidget):
+    """Stability Analysis tab with feature to import and display a photo from the PC."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+
+        self.image_label = QLabel("No stability photo loaded. Click below to add one.")
+        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.image_label.setStyleSheet("border: 2px dashed #aaa; color: #666; background: #f9f9f9;")
+        self.image_label.setMinimumHeight(400)
+
+        load_button = QPushButton("Load Stability Photo from PC")
+        load_button.clicked.connect(self.load_photo)
+
+        layout.addWidget(self.image_label, 1)
+        layout.addWidget(load_button)
+
+    def load_photo(self) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Open Stability Image", "", "Image Files (*.png *.jpg *.bmp *.jpeg)"
+        )
+        if file_path:
+            pixmap = QPixmap(file_path)
+            if not pixmap.isNull():
+                self.image_label.setPixmap(pixmap.scaled(
+                    self.image_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+                ))
+                self.image_label.setStyleSheet("border: none; background: transparent;")
+
+
 class SignalPlotPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -361,10 +360,6 @@ class SignalPlotPage(QWidget):
         self.angle_curve = self.angle_plot.plot(pen=pg.mkPen(color=(64, 224, 208), width=2), name=ANGLE_SIGNAL_NAME)
         self.moza_angle_curve = self.moza_angle_plot.plot(pen=pg.mkPen(color=(64, 224, 208), width=2), name=R5_ANGLE_SIGNAL_NAME)
         self.moza_torque_curve = self.moza_torque_plot.plot(pen=pg.mkPen(color=(64, 224, 208), width=2), name=R5_TORQUE_SIGNAL_NAME)
-
-        for curve in [self.current_1_curve, self.current_2_curve, self.torque_curve, self.angle_curve, self.moza_angle_curve, self.moza_torque_curve]:
-            curve.setDownsampling(method='peak', ds=2, auto=True)
-            curve.setClipToView(True)
 
         clear_button = QPushButton("Clear plots")
         clear_button.clicked.connect(self.clear)
@@ -413,13 +408,15 @@ class SignalPlotPage(QWidget):
         if not self.time_values:
             return
 
-        times = list(self.time_values)
-        self.current_1_curve.setData(times, list(self.current_1_values))
-        self.current_2_curve.setData(times, list(self.current_2_values))
-        self.torque_curve.setData(times, list(self.torque_values))
-        self.angle_curve.setData(times, list(self.angle_values))
-        self.moza_angle_curve.setData(times, list(self.moza_angle_values))
-        self.moza_torque_curve.setData(times, list(self.moza_torque_values))
+        # Optimized direct NumPy array translation to bypass overhead
+        times = np.fromiter(self.time_values, dtype=float)
+        
+        self.current_1_curve.setData(times, np.fromiter(self.current_1_values, dtype=float))
+        self.current_2_curve.setData(times, np.fromiter(self.current_2_values, dtype=float))
+        self.torque_curve.setData(times, np.fromiter(self.torque_values, dtype=float))
+        self.angle_curve.setData(times, np.fromiter(self.angle_values, dtype=float))
+        self.moza_angle_curve.setData(times, np.fromiter(self.moza_angle_values, dtype=float))
+        self.moza_torque_curve.setData(times, np.fromiter(self.moza_torque_values, dtype=float))
 
         latest_time = times[-1]
         min_time = max(0.0, latest_time - PLOT_WINDOW_SECONDS)
@@ -437,9 +434,9 @@ class SignalPlotPage(QWidget):
 
 
 class HomePage(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, text: str, parent=None):
         super().__init__(parent)
-        title = QLabel("CAPT Motor Dashboard")
+        title = QLabel(text)
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         instructions = QLabel(
             "Waiting for UDP data from dSPACE...\n\n"
@@ -470,7 +467,6 @@ class MainWindow(QMainWindow):
         self.udp_receiver = UdpReceiver(UDP_IP, UDP_PORT)
         self.angle_sender = UdpSender(ANGLE_FORWARD_IP, ANGLE_FORWARD_PORT, send_as_binary=True)
 
-        # Worker thread
         self.udp_worker = UdpWorkerThread(self.udp_receiver, self.angle_sender)
         self.udp_worker.start()
 
@@ -486,21 +482,21 @@ class MainWindow(QMainWindow):
 
         self.signal_plot_page = SignalPlotPage()
         self.spring_page = SpringPage()
+        self.stability_page = StabilityPage()
 
         tabs = QTabWidget()
         tabs.addTab(self.signal_plot_page, "Live Signals")
-        tabs.addTab(HomePage(), "Home")
-        tabs.addTab(HomePage(), "Moza R5 specs")
-        tabs.addTab(QWidget(), "Stability Analysis")
+        tabs.addTab(HomePage("CAPT Motor Dashboard"), "Home")
+        tabs.addTab(HomePage("Moza R5 specs"), "Moza R5 specs")
+        tabs.addTab(self.stability_page, "Stability Analysis")
         tabs.addTab(QWidget(), "Transparency Analysis")
-        tabs.addTab(HomePage(), "CAPT Motor Characterisation Analysis")
+        tabs.addTab(HomePage("CAPT Motor Characterisation Analysis"), "CAPT Motor Characterisation Analysis")
         tabs.addTab(self.spring_page, "Virtual Spring Visualization")
         self.setCentralWidget(tabs)
 
         self.status_label = QLabel(f"Listening on UDP {UDP_IP}:{UDP_PORT}")
         self.statusBar().addPermanentWidget(self.status_label)
 
-        # Master GUI update tick rate (locked strictly to 50 Hz)
         self.gui_timer = QTimer(self)
         self.gui_timer.timeout.connect(self._process_gui_tick)
         self.gui_timer.start(GUI_UPDATE_PERIOD_MS)
@@ -519,7 +515,6 @@ class MainWindow(QMainWindow):
         return None
 
     def _process_gui_tick(self) -> None:
-        # 1. Pull latest packet safely from worker thread buffer
         packet = self.udp_worker.get_latest_packet()
         if packet is not None:
             self.packet_count += 1
@@ -534,7 +529,6 @@ class MainWindow(QMainWindow):
             if (val := self._read_number(packet, CURRENT_PHASE_2_NAME)) is not None:
                 self.latest_current_2 = val
 
-        # 2. Poll Moza R5 wheel
         if self.wheel is not None:
             try:
                 pygame.event.pump()
@@ -545,7 +539,6 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-        # 3. Update plots and widgets in a single throttled UI sweep
         self.signal_plot_page.add_sample(
             self.latest_angle_rad, self.latest_torque,
             self.latest_current_1, self.latest_current_2,
@@ -566,19 +559,9 @@ class MainWindow(QMainWindow):
         if self.last_packet_time is None:
             self.status_label.setText(f"Waiting for dSPACE on {UDP_IP}:{UDP_PORT}")
             return
-        
         elapsed = time.monotonic() - self.last_packet_time
         status = "Receiving" if elapsed < 1.0 else ("No recent packets" if elapsed < 3.0 else "Connection inactive")
-        
-        # Pull real-time thread tracking metrics
-        stats = self.udp_worker.get_telemetry_stats()
-        
-        # Display connection status alongside thread telemetry overhead stats in the status bar
-        self.status_label.setText(
-            f"{status} | Packets: {self.packet_count} | "
-            f"Thread CPU: {stats['cpu_percent']:.1f}% | "
-            f"Overhead: {stats['avg_overhead_ms']:.3f} ms/loop"
-        )
+        self.status_label.setText(f"{status} | Packets: {self.packet_count}")
 
     def closeEvent(self, event) -> None:
         self.udp_worker.stop()
