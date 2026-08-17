@@ -1,3 +1,14 @@
+Invalid "function-call" connection.
+Component:Simulink | Category:Block diagram error
+Function-call initiator 'Copy_of_outputs_AsymmetricSpring/Function-Call Generator' is attempting to invoke a function-call block on output port 1, element 1 even though this port element has not been configured to output a function-call signal.
+Component:Simulink | Category:Block diagram error
+Invalid connection ends with 'Copy_of_outputs_AsymmetricSpring/toggler_high/DIO_CLASS1_BIT_OUT_BL1/S-Function1' which is illegal because it is not a function-call block.
+
+
+
+
+
+
 https://de.mathworks.com/help/driving/ug/lane-keeping-assist-with-lane-detection.html
 
 
