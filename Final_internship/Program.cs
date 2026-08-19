@@ -1,43 +1,97 @@
+// using mozaAPI;
+// using System.Diagnostics;
+// using System.Runtime.InteropServices;
+// using static mozaAPI.mozaAPI;
+
+// // P/Invoke to get the console window handle (HWND) without Windows Forms
+// [DllImport("kernel32.dll")]
+// static extern IntPtr GetConsoleWindow();
+
+// // Run only the live steering angle telemetry loop
+// MozaSteeringTest();
+
+// Console.WriteLine("Program finished.");
+// return;
+
+// void MozaSteeringTest()
+// { 
+//     Console.WriteLine("Starting Live Steering Angle Telemetry...");
+//     installMozaSDK();
+//     ERRORCODE err = ERRORCODE.NORMAL;
+
+//     var wheelangle = 0.0;
+//     Console.Clear();
+
+//     while (true)
+//     {
+//         var HIDDATA = getHIDData(ref err);
+//         var Sampledwheelangle = HIDDATA.fSteeringWheelAngle;
+        
+//         if (!float.IsNaN(Sampledwheelangle))
+//         {
+//             wheelangle = Sampledwheelangle;
+//         }
+
+//         // Display only the encoder angle live on screen
+//         Console.WriteLine($"Live Steering Wheel Angle: {wheelangle:F2}°     ");
+        
+//         // Reset cursor to the top line for a clean real-time display effect
+//         Console.SetCursorPosition(0, 0);
+//         Thread.Sleep(50); // Small delay to avoid hammering CPU
+//     }
+
+//     removeMozaSDK();
+// }
 using mozaAPI;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using static mozaAPI.mozaAPI;
 
-// P/Invoke to get the console window handle (HWND) without Windows Forms
 [DllImport("kernel32.dll")]
 static extern IntPtr GetConsoleWindow();
 
-// Run only the live steering angle telemetry loop
-MozaSteeringTest();
+// Run the live telemetry loop
+MozaLiveTelemetryTest();
 
 Console.WriteLine("Program finished.");
 return;
 
-void MozaSteeringTest()
+void MozaLiveTelemetryTest()
 { 
-    Console.WriteLine("Starting Live Steering Angle Telemetry...");
+    Console.WriteLine("Starting Live Telemetry Stream...");
     installMozaSDK();
     ERRORCODE err = ERRORCODE.NORMAL;
 
-    var wheelangle = 0.0;
+    var wheelangle = 0.0f;
     Console.Clear();
 
     while (true)
     {
         var HIDDATA = getHIDData(ref err);
-        var Sampledwheelangle = HIDDATA.fSteeringWheelAngle;
         
-        if (!float.IsNaN(Sampledwheelangle))
+        // Update values if valid
+        if (!float.IsNaN(HIDDATA.fSteeringWheelAngle))
         {
-            wheelangle = Sampledwheelangle;
+            wheelangle = HIDDATA.fSteeringWheelAngle;
         }
 
-        // Display only the encoder angle live on screen
-        Console.WriteLine($"Live Steering Wheel Angle: {wheelangle:F2}°     ");
+        var throttle = HIDDATA.throttle;
+        var brake = HIDDATA.brake;
         
-        // Reset cursor to the top line for a clean real-time display effect
+        // Depending on your specific version of the MOZA_API_CSharp wrapper, 
+        // live torque feedback or motor torque is typically exposed via a property like 'torque' or 'fTorque'.
+        // (Adjust the property name below if your wrapper uses a slightly different identifier).
+        var liveTorque = HIDDATA.torque; 
+
+        // Display telemetry live on screen
+        Console.WriteLine($"Steering Angle : {wheelangle,6:F2}°     ");
+        Console.WriteLine($"Throttle       : {throttle,6}        ");
+        Console.WriteLine($"Brake          : {brake,6}           ");
+        Console.WriteLine($"Live Torque    : {liveTorque,6:F2} Nm  ");
+        
+        // Reset cursor to the top line for a smooth real-time refresh effect
         Console.SetCursorPosition(0, 0);
-        Thread.Sleep(50); // Small delay to avoid hammering CPU
+        Thread.Sleep(50); 
     }
 
     removeMozaSDK();
