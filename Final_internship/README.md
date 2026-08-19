@@ -17,3 +17,7 @@ CMake Error at C:\Users\javot\Downloads\MOZA_SDK(2)\MOZA_SDK\1.0.1.8\MSVC2022-64
   Add the installation prefix of "QT" to CMAKE_PREFIX_PATH or set "QT_DIR" to
   a directory containing one of the above files.  If "QT" provides a separate
   development package or SDK, be sure it has been installed.
+
+
+
+CMake Error at C:\Users\javot\Downloads\MOZA_SDK(2)\MOZA_SDK\1.0.1.8\MSVC2022-64\example\CMakeLists.txt:4 (set): ...
