@@ -1,11 +1,27 @@
 using mozaAPI;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
-using System.Windows.Forms; 
 using static mozaAPI.mozaAPI;
 
-// Call the steering test here so it actually runs!
-MozaSteeringTest();
+class Program
+{
+    static void Main(string[] args)
+    {
+        // 1. Initialize the SDK
+        installMozaSDK();
+        Console.WriteLine("Moza SDK Initialized. Press Ctrl+C to exit.");
 
-Console.WriteLine("Program finished.");
-return; // Any code placed AFTER this return line is unreachable
+        try
+        {
+            // 2. Simple loop to keep the console alive and read telemetry/status
+            while (true)
+            {
+                // Add your telemetry polling or effect updates here
+                Thread.Sleep(100); 
+            }
+        }
+        finally
+        {
+            // 3. Clean up on exit
+            removeMozaSDK();
+        }
+    }
+}
