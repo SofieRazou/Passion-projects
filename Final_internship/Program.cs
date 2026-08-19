@@ -50,21 +50,19 @@ using static mozaAPI.mozaAPI;
 [DllImport("kernel32.dll")]
 static extern IntPtr GetConsoleWindow();
 
-// Run the live telemetry and physics loop
-RunPhysicsTelemetryLoop();
+RunInertiaTorqueLoop();
 
 Console.WriteLine("Program finished.");
 return;
 
-void RunPhysicsTelemetryLoop()
+void RunInertiaTorqueLoop()
 { 
-    Console.WriteLine("Starting Moza Physics & Telemetry Loop...");
+    Console.WriteLine("Starting Moza Inertia-Based Torque Loop...");
     installMozaSDK();
     ERRORCODE err = ERRORCODE.NORMAL;
 
     IntPtr hWnd = GetConsoleWindow();
 
-    // Initialize a constant force effect for dynamic FFB updates
     var constantForce = createWheelbaseETConstantForce(hWnd, ref err);
     if (constantForce == null)
     {
@@ -75,64 +73,70 @@ void RunPhysicsTelemetryLoop()
 
     constantForce.setDuration(0xffff);
     constantForce.setMagnitude(0);
-    
-    try
-    {
-        constantForce.start();
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"Failed to start force effect: {ex.Message}");
-    }
+    constantForce.start();
 
-    var wheelangle = 0.0f;
+    // Physics tracking variables
+    float previousAngle = 0.0f;
+    float previousVelocity = 0.0f;
+    DateTime lastTime = DateTime.Now;
+    
+    // Constants for your physics model
+    const float inertia = 0.0007f;
+    const float damping = 0.01f;
+    const float springCoeff = 1.5f;
+
     Console.Clear();
 
     while (true)
     {
-        // 1. Read incoming hardware telemetry (steering angle, pedals)
         var HIDDATA = getHIDData(ref err);
         
         if (!float.IsNaN(HIDDATA.fSteeringWheelAngle))
         {
-            wheelangle = HIDDATA.fSteeringWheelAngle;
+            float currentAngle = HIDDATA.fSteeringWheelAngle;
+            
+            DateTime now = DateTime.Now;
+            float deltaTime = (float)(now - lastTime).TotalSeconds;
+            
+            if (deltaTime > 0)
+            {
+                // 1. Derive Kinematics
+                float currentVelocity = (currentAngle - previousAngle) / deltaTime;
+                float currentAcceleration = (currentVelocity - previousVelocity) / deltaTime;
+                
+                // 2. Calculate Torque using Inertia, Damping, and Spring forces
+                // Torque = (I * alpha) + (damping * velocity) + (spring * angle)
+                float calculatedTorque = (inertia * currentAcceleration) 
+                                       + (damping * currentVelocity) 
+                                       + (springCoeff * currentAngle);
+
+                // Scale/clamp to safe motor command limits (adjust multiplier as needed for feel)
+                float finalMagnitude = calculatedTorque * 100.0f;
+                if (finalMagnitude > 800) finalMagnitude = 800;
+                if (finalMagnitude < -800) finalMagnitude = -800;
+
+                // 3. Command the hardware
+                constantForce.setMagnitude((long)finalMagnitude);
+
+                // Update tracking states
+                previousAngle = currentAngle;
+                previousVelocity = currentVelocity;
+                lastTime = now;
+
+                // Display live data
+                Console.WriteLine($"--- MOZA Physics Engine ---");
+                Console.WriteLine($"Angle         : {currentAngle,6:F2}°     ");
+                Console.WriteLine($"Velocity      : {currentVelocity,6:F2} °/s  ");
+                Console.WriteLine($"Acceleration  : {currentAcceleration,6:F2} °/s²");
+                Console.WriteLine($"Torque Cmd    : {finalMagnitude,6:F2} Nm   ");
+                
+                Console.SetCursorPosition(0, 0);
+            }
         }
-
-        var throttle = HIDDATA.throttle;
-        var brake = HIDDATA.brake;
-
-        // 2. Calculate your target torque force based on your physics logic (e.g., -800 to 800)
-        float calculatedTorque = CalculateSteeringRackForce(wheelangle);
-
-        // 3. Push that direct force command to the Moza hardware via effect magnitude
-        constantForce.setMagnitude((long)calculatedTorque);
-
-        // Display telemetry and commanded torque live on screen
-        Console.WriteLine($"--- MOZA Physics & Telemetry ---");
-        Console.WriteLine($"Steering Angle   : {wheelangle,6:F2}°     ");
-        Console.WriteLine($"Throttle         : {throttle,6}        ");
-        Console.WriteLine($"Brake            : {brake,6}           ");
-        Console.WriteLine($"Calculated Torque: {calculatedTorque,6:F2}  ");
         
-        // Reset cursor to the top line for real-time refreshing
-        Console.SetCursorPosition(0, 0);
-        Thread.Sleep(5); // ~200Hz physics loop tick rate
+        Thread.Sleep(5); // ~200Hz loop tick rate
     }
 
     constantForce.setMagnitude(0);
     removeMozaSDK();
-}
-
-// Example placeholder for your custom physics/steering rack calculation
-float CalculateSteeringRackForce(float currentAngle)
-{
-    // Example: simple centering spring force proportional to angle deviation
-    float springCoeff = 2.0f;
-    float targetTorque = -currentAngle * springCoeff;
-    
-    // Clamp to safe maximum limits
-    if (targetTorque > 800) targetTorque = 800;
-    if (targetTorque < -800) targetTorque = -800;
-    
-    return targetTorque;
 }
