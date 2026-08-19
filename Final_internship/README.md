@@ -1,31 +1,10 @@
-C:\Users\javot\Desktop\MozaIntegration\MozaIntegration\bin>dotnet run --project"C:\Users\javot\Desktop\MozaIntegration\MozaIntegration" -r win-x64
-Couldn't find a project to run. Ensure a project exists in C:\Users\javot\Desktop\MozaIntegration\MozaIntegration\bin, or pass the path to the project using --project.
 
-C:\Users\javot\Desktop\MozaIntegration\MozaIntegration\bin>
-
-
-
-
-For detailed files from my documentation: https://github.com/SofieRazou/Passion-projects/tree/gh-pages
-
-for some moza help: https://github.com/mirridel/moza-sdk-python/blob/master/README.md
-CMake Error at C:\Users\javot\Downloads\MOZA_SDK(2)\MOZA_SDK\1.0.1.8\MSVC2022-64\example\CMakeLists.txt:4 (find_package):
-  Could not find a package configuration file provided by "QT" with any of
-  the following names:
-
-    Qt6.cps
-    qt6.cps
-    Qt6Config.cmake
-    qt6-config.cmake
-    Qt5.cps
-    qt5.cps
-    Qt5Config.cmake
-    qt5-config.cmake
-
-  Add the installation prefix of "QT" to CMAKE_PREFIX_PATH or set "QT_DIR" to
-  a directory containing one of the above files.  If "QT" provides a separate
-  development package or SDK, be sure it has been installed.
-
+C:\Users\javot\Desktop\MozaIntegration\MozaIntegration>dotnet run -c Release -r win-x64
+Unhandled exception. System.DllNotFoundException: Unable to load DLL 'MOZA_API_C.dll' or one of its dependencies: The specified module could not be found. (0x8007007E)
+   at mozaAPI.C_SDK_IMPORT.installMozaSDK_C()
+   at mozaAPI.C_SDK_IMPORT.installMozaSDK_C()
+   at mozaAPI.mozaAPI.installMozaSDK()
+   at Program.Main(String[] args) in C:\Users\javot\Desktop\MozaIntegration\MozaIntegration\Program.cs:line 9
 
 
 CMake Error at C:\Users\javot\Downloads\MOZA_SDK(2)\MOZA_SDK\1.0.1.8\MSVC2022-64\example\CMakeLists.txt:6 (find_package): ...
