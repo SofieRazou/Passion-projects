@@ -47,7 +47,6 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using static mozaAPI.mozaAPI;
 
-// P/Invoke to get the console window handle (HWND) without Windows Forms
 [DllImport("kernel32.dll")]
 static extern IntPtr GetConsoleWindow();
 
@@ -59,15 +58,17 @@ return;
 
 void MozaLiveTelemetryTest()
 { 
-    Console.WriteLine("Starting Live Telemetry & Torque Stream...");
+    Console.WriteLine("Starting Live Telemetry Stream...");
     installMozaSDK();
     ERRORCODE err = ERRORCODE.NORMAL;
 
-    // Get the console window handle for 64-bit execution
     IntPtr hWnd = GetConsoleWindow();
 
     var wheelangle = 0.0f;
     Console.Clear();
+
+    // Variable to track your target or commanded torque locally
+    float commandedTorque = 0.0f;
 
     while (true)
     {
@@ -81,17 +82,13 @@ void MozaLiveTelemetryTest()
 
         var throttle = HIDDATA.throttle;
         var brake = HIDDATA.brake;
-        
-        // Live feedback / torque parameters exposed by the HID struct
-        // (Depending on your exact wrapper version, check IntelliSense if your property is named 'torque' or 'fTorque')
-        var liveTorque = HIDDATA.torque; 
 
-        // Display telemetry live on screen
+        // Display valid telemetry and your tracked torque value live on screen
         Console.WriteLine($"--- MOZA Live Telemetry ---");
-        Console.WriteLine($"Steering Angle : {wheelangle,6:F2}°     ");
-        Console.WriteLine($"Throttle       : {throttle,6}        ");
-        Console.WriteLine($"Brake          : {brake,6}           ");
-        Console.WriteLine($"Live Torque    : {liveTorque,6:F2}     ");
+        Console.WriteLine($"Steering Angle   : {wheelangle,6:F2}°     ");
+        Console.WriteLine($"Throttle         : {throttle,6}        ");
+        Console.WriteLine($"Brake            : {brake,6}           ");
+        Console.WriteLine($"Commanded Torque : {commandedTorque,6:F2}  ");
         
         // Reset cursor to the top line for a smooth real-time refresh effect
         Console.SetCursorPosition(0, 0);
