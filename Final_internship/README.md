@@ -21,3 +21,10 @@ CMake Error at C:\Users\javot\Downloads\MOZA_SDK(2)\MOZA_SDK\1.0.1.8\MSVC2022-64
 
 
 CMake Error at C:\Users\javot\Downloads\MOZA_SDK(2)\MOZA_SDK\1.0.1.8\MSVC2022-64\example\CMakeLists.txt:6 (find_package): ...
+
+
+Build started at 5:26 PM...
+1>------ Skipped Build: Project: ConsoleApp1, Configuration: Release x64 ------
+1>Project not selected to build for this solution configuration 
+========== Build: 0 succeeded or up-to-date, 0 failed, 1 skipped ==========
+========== Build completed at 5:26 PM and took 00.064 seconds ==========
