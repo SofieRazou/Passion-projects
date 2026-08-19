@@ -1,5 +1,17 @@
-<ItemGroup>
-  <Reference Include="MOZA_API_CSharp">
-    <HintPath>MOZA_API_CSharp.dll</HintPath>
-  </Reference>
-</ItemGroup>
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Platforms>AnyCPU;x64</Platforms>
+  </PropertyGroup>
+  <ItemGroup>
+   <ItemGroup>
+    <Reference Include="MOZA_API_CSharp">
+      <HintPath>MOZA_API_CSharp.dll</HintPath>
+    </Reference>
+   </ItemGroup>
+   </ItemGroup>
+</Project>
