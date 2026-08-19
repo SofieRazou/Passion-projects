@@ -1,24 +1,19 @@
-/*************************************************************************************
- * This file is an example code on how to use MOZA Shifter device-related interfaces with MOZA SDK C#
- *
- * For other APIs in MOZA SDK, please refer to the example code file `sdk_api_test.cc` in the MOZA SDK C++ version.
- * You can also refer to the API documentation of the C++ version, located at `docsEng/index.html`.
- * The API in the MOZA SDK C# version is almost identical to the C++ version in terms of function names and input parameters.
-*************************************************************************************/
-
-
 using mozaAPI;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Windows.Forms; // Windows Forms can be used to get a valid window handle (HWND)
 using static mozaAPI.mozaAPI;
 
+// P/Invoke to get the console window handle (HWND) without Windows Forms
+[DllImport("kernel32.dll")]
+static extern IntPtr GetConsoleWindow();
 
+// Select which test to run:
 //MozaShifterTest();
 //MozaSwitchTest();
 //MozaSteeringTest();
 ffb_test();
 //MoveTo(90, 100);
+
 Console.WriteLine("Program finished.");
 return;
 
@@ -29,41 +24,24 @@ void ffb_test()
     installMozaSDK();
     ERRORCODE err = ERRORCODE.NORMAL;
 
-    // In C#, we use a Form/Control to get a valid HWND (Window Handle)
-    Form dummyForm = new Form();
-    dummyForm.Show();
-    IntPtr hWnd = dummyForm.Handle;
+    // Get the window handle for the current console window
+    IntPtr hWnd = GetConsoleWindow();
 
     // Spring Force Test
     var force_mgr = createWheelbaseETSpring(hWnd, ref err);
     force_mgr.setDuration(0xffff);
-    //force_mgr.setDuration(1000);
     try
     {
         force_mgr.start();
+        Console.WriteLine("Spring force effect started successfully.");
     }
     catch (Exception ex)
     {
-        // Handle any other unexpected exceptions
         Console.WriteLine($"An unexpected error occurred: {ex.Message}");
     }
 
-
-    /*
-    // Constant Force Test
-    var force_mgr = createWheelbaseETConstantForce(hWnd, ref err);
-    force_mgr.setMagnitude(100);
-    force_mgr.setDuration(10000);
-    try
-    {
-        force_mgr.start();
-    }
-    catch (Exception ex)
-    {
-        // Handle any other unexpected exceptions
-        Console.WriteLine($"An unexpected error occurred: {ex.Message}");
-    }
-    */
+    // Keep it running long enough to feel the effect or test
+    Thread.Sleep(5000);
 
     removeMozaSDK();
 }
@@ -75,7 +53,7 @@ void MozaSteeringTest()
     ERRORCODE err = ERRORCODE.NORMAL;
 
     var wheelangle = 0.0;
-    Console.Clear(); // Clears the console  
+    Console.Clear();
 
     while (true)
     {
@@ -90,9 +68,8 @@ void MozaSteeringTest()
         Console.WriteLine($"Steering wheel angle: {wheelangle}");
         Console.WriteLine($"Throttle: {throttle}");
         Console.WriteLine($"Brake: {brake}");
-        //Thread.Sleep(100);
-        //Console.Clear(); // Clears the console
         Console.SetCursorPosition(0, 0);
+        Thread.Sleep(100);
     }
 
     removeMozaSDK();
@@ -113,21 +90,19 @@ void MozaSwitchTest()
         Console.WriteLine("Device open failed.");
         return;
     }
-    Console.WriteLine($"MOZA Stitch device '{device.Path}' is opened.");
+    Console.WriteLine($"MOZA Switch device '{device.Path}' is opened.");
 
     while (device.IsConnected)
     {
         var currentSwitchValues = device.GetStateInfo(out var switcherror);
         var numSwitches = currentSwitchValues.Count;
-        //Console.WriteLine($"current Switch count {numSwitches}");
-        for (int i = 0; i <= numSwitches-1; i++)
+        for (int i = 0; i <= numSwitches - 1; i++)
             if (currentSwitchValues[i] == 1)
             {
                 Console.WriteLine($"Switch {i} = {currentSwitchValues[i]}");
             }
         Thread.Sleep(1000);
-        Console.Clear(); // Clears the console  
-
+        Console.Clear();
     }
 }
 
@@ -152,8 +127,6 @@ void MozaShifterTest()
     var gear = 0;
     while (device.IsConnected)
     {
-        // The `GetCurrentGear` function waits for the HID report while reading data, until valid data is received or an error occurs.
-        // This means the execution time of this function may be relatively long, and it is not recommended to call it in the main thread.
         var currentGear = device.GetCurrentGear();
         if (gear == currentGear) continue;
         Console.WriteLine($"The gear has been switched from {gear} to {currentGear}");
@@ -167,29 +140,16 @@ void MoveTo(short steeringWheelAngle, short speed)
 {
     Console.WriteLine("Running MoveTo.");
 
-    // Define necessary constants used in the original C++ code
-    const float DEG_TO_RPM_PER_MIN = 60 / 360; // Simplified constant, adjust as needed
-    const float DT = 0.005f; // 5ms delay in loop
-    const float CONSTANT_FORCE_MAX = 800; // Placeholder value
+    const float DEG_TO_RPM_PER_MIN = 60.0f / 360.0f;
+    const float DT = 0.005f;
+    const float CONSTANT_FORCE_MAX = 800;
 
-
-    // R9
-    //float spd_kp = 2.0f;
-    //float spd_ki = 200.f;
-
-    // R16
-    //float spd_kp = 2.0f;
-    //float spd_ki = 40.0f;
-
-    // R12
-    // PID constants
     float pos_kp = 1.0f;
     float pos_ki = 0.0f;
     float spd_kp = 2.0f;
     float spd_ki = 200.0f;
     float spd_kd = 0.0f;
 
-    // State variables
     bool flag = false;
     float pre_theta = 0.0f;
     float pos_error = 0.0f;
@@ -201,10 +161,9 @@ void MoveTo(short steeringWheelAngle, short speed)
 
     installMozaSDK();
     ERRORCODE err = ERRORCODE.NORMAL;
-    // In C#, we use a Form/Control to get a valid HWND (Window Handle)
-    Form dummyForm = new Form();
-    dummyForm.Show();
-    IntPtr hWnd = dummyForm.Handle;
+
+    // Get the console window handle without Windows Forms
+    IntPtr hWnd = GetConsoleWindow();
 
     float target_pos = steeringWheelAngle;
 
@@ -213,11 +172,8 @@ void MoveTo(short steeringWheelAngle, short speed)
     if (constantForce == null)
     {
         Debug.WriteLine("no constantForce");
-        dummyForm.Close(); // Clean up dummy form
         return;
     }
-
-    //Thread.Sleep(500);
 
     constantForce.setDuration(0xffff);
     constantForce.setMagnitude(0);
@@ -232,17 +188,15 @@ void MoveTo(short steeringWheelAngle, short speed)
 
     while (true)
     {
-        // \Getting HID data struct
         var d = getHIDData(ref err);
 
-        // Check if data is valid
         if (!float.IsNaN(d.fSteeringWheelAngle))
         {
             if (AreFloatsEqualWithinTolerance(d.fSteeringWheelAngle, steeringWheelAngle))
             {
                 constantForce.setMagnitude(0);
                 Thread.Sleep(5);
-                break; // Exit the while loop
+                break;
             }
 
             if (!flag)
@@ -252,19 +206,16 @@ void MoveTo(short steeringWheelAngle, short speed)
             }
             float curr_pos = d.fSteeringWheelAngle;
 
-            // PID Calculations (Direct port of C++ logic)
             float delta_theta = curr_pos - pre_theta;
             float current_spd = delta_theta / DT * DEG_TO_RPM_PER_MIN;
             pre_theta = curr_pos;
 
-            // Position control
             pos_error = target_pos - curr_pos;
             pos_err_integ += pos_error * DT * pos_ki;
             float spd_ref = pos_err_integ + pos_kp * pos_error;
 
             FloatLimit(ref spd_ref, (float)speed);
 
-            // Speed loop control
             spd_err = (spd_ref - current_spd);
             spd_err_integ += spd_err * DT * spd_ki;
             spd_derivative = (spd_err - spd_pre_err) / DT;
@@ -276,21 +227,16 @@ void MoveTo(short steeringWheelAngle, short speed)
 
             constantForce.setMagnitude((long)target_ref);
 
-            // Console logging equivalent
             Console.WriteLine($"error_pos:{pos_error} target_pos:{target_pos} current_spd:{current_spd} target_ref:{target_ref}.");
         }
-        //Thread.Sleep(5);
     }
 
-
-    // Helper method to limit a float value
     void FloatLimit(ref float value, float limit)
     {
         if (value > limit) value = limit;
         if (value < -limit) value = -limit;
     }
 
-    // Helper method to compare floats with a tolerance
     bool AreFloatsEqualWithinTolerance(float f1, float f2, float tolerance = 0.5f)
     {
         return Math.Abs(f1 - f2) < tolerance;
