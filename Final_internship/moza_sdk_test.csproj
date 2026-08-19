@@ -2,24 +2,29 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
+	<UseWindowsForms>true</UseWindowsForms>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Platforms>AnyCPU;x64</Platforms>
-	<UseWindowsForms>true</UseWindowsForms>
+    <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
 
   <ItemGroup>
-    <Folder Include="Libs\" />
+    <Reference Include="MOZA_API_CSharp">
+      <HintPath>..\..\MOZA_SDK\SDK_CSharp\x64\MOZA_API_CSharp.dll</HintPath>
+    </Reference>
   </ItemGroup>
 
   <ItemGroup>
-    <Reference Include="ConsoleApp1">
-      <HintPath>bin\Debug\net10.0\ConsoleApp1.dll</HintPath>
-    </Reference>
-    <Reference Include="MOZA_API_CSharp">
-      <HintPath>..\..\..\Downloads\MOZA_SDK(2)\MOZA_SDK\SDK_CSharp\x64\MOZA_API_CSharp.dll</HintPath>
-    </Reference>
+    <None Update="MOZA_API_C.dll">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="MOZA_API_CSharp.dll">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="MOZA_SDK.dll">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>
