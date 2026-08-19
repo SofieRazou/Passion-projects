@@ -5,13 +5,22 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Platforms>AnyCPU;x64</Platforms>
+    <Platforms>AnyCPU;x64;x86</Platforms>
   </PropertyGroup>
+
   <ItemGroup>
-   <ItemGroup>
     <Reference Include="MOZA_API_CSharp">
       <HintPath>MOZA_API_CSharp.dll</HintPath>
     </Reference>
-   </ItemGroup>
-   </ItemGroup>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="MOZA_API_C.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="MOZA_SDK.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>
