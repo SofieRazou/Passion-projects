@@ -1,3 +1,11 @@
+C:\Users\javot\Desktop\MozaIntegration\MozaIntegration\bin>dotnet run --project"C:\Users\javot\Desktop\MozaIntegration\MozaIntegration" -r win-x64
+Couldn't find a project to run. Ensure a project exists in C:\Users\javot\Desktop\MozaIntegration\MozaIntegration\bin, or pass the path to the project using --project.
+
+C:\Users\javot\Desktop\MozaIntegration\MozaIntegration\bin>
+
+
+
+
 For detailed files from my documentation: https://github.com/SofieRazou/Passion-projects/tree/gh-pages
 
 for some moza help: https://github.com/mirridel/moza-sdk-python/blob/master/README.md
