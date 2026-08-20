@@ -1,3 +1,5 @@
+
+    C:\Users\javot\Desktop\MozaIntegration\MozaIntegration\Program.cs(91,53): error CS1620: Argument 1 must be passed with the 'ref' keyword
 mozaSdk
 Here is a list of all namespace members with links to the namespace documentation for each member:
 - a -
