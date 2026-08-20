@@ -1,4 +1,12 @@
+There is no argument given that corresponds to the required parameter 'err' of 'mozaAPI.motorMoveTo(nint, float, float, ref ERRORCODE)'
+    C:\Users\javot\Desktop\MozaIntegration\MozaIntegration\Program.cs(115,5): warning CS0162: Unreachable code detected
+    C:\Users\javot\Desktop\MozaIntegration\MozaIntegration\Program.cs(70,9): warning CS0219: The variable 'wheeltor' is assigned but its value is never used
 
+Build failed with 1 error(s) and 2 warning(s) in 1.5s
+
+
+    
+    
     C:\Users\javot\Desktop\MozaIntegration\MozaIntegration\Program.cs(91,53): error CS1620: Argument 1 must be passed with the 'ref' keyword
 mozaSdk
 Here is a list of all namespace members with links to the namespace documentation for each member:
