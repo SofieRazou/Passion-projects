@@ -13,7 +13,7 @@ Console.WriteLine("Program finished.");
 return;
 
 void RunPhysicsTelemetryLoop()
-{ 
+{
     Console.WriteLine("Starting Moza Physics & Telemetry Loop...");
     installMozaSDK();
     ERRORCODE err = ERRORCODE.NORMAL;
@@ -21,10 +21,15 @@ void RunPhysicsTelemetryLoop()
     IntPtr hWnd = GetConsoleWindow();
 
     var wheelangle = 0.0f;
-    var  wheelvel = 0.0f;
-    var  wheelaccel = 0.0f;
-    var wheeltor = 0.0f;
+    var wheelvel = 0.0f;
+    var wheelaccel = 0.0f;
+    
     Console.Clear();
+
+    // If you want to run a motor positioning command once before starting the telemetry stream:
+    // motorMoveTo(hWnd, 400, 160, ref err);
+    // Thread.Sleep(2000);
+    // motorStopMove();
 
     while (true)
     {
@@ -33,45 +38,42 @@ void RunPhysicsTelemetryLoop()
         
         if (!float.IsNaN(HIDDATA.fSteeringWheelAngle))
         {
-            wheelangle = HIDDATA.fSteeringWheelAngle;       
+            wheelangle = HIDDATA.fSteeringWheelAngle;      
         }
         if (!float.IsNaN(HIDDATA.fSteeringWheelVelocity))
         {
-            wheelvel = HIDDATA.fSteeringWheelVelocity;       
+            wheelvel = HIDDATA.fSteeringWheelVelocity;      
         }  
         if (!float.IsNaN(HIDDATA.fSteeringWheelAcceleration))
         {
-            wheelaccel = HIDDATA.fSteeringWheelAcceleration;       
+            wheelaccel = HIDDATA.fSteeringWheelAcceleration;      
         }
     
         var NaturalInertia = getMotorNaturalInertia(ref err);
         var inertRatio = getMotorNaturalInertiaRatio(ref err);
-
         var spring = getMotorSpringStrength(ref err);
+        
         var throttle = HIDDATA.throttle;
         var brake = HIDDATA.brake;
-        motorMoveTo(hWnd, 400, 160, ref err); // Reset wheel to center position on exit
-        motorStopMove(); // Stop any ongoing motor movement
 
-        // Display telemetry and commanded torque live on screen
+        // Display telemetry live on screen
         Console.WriteLine($"--- MOZA Physics & Telemetry ---");
-        Console.WriteLine($"Steering Angle   : {wheelangle,6:F2}°     ");
-        Console.WriteLine($"Natural Inertia  : {NaturalInertia,6:F2}%     ");
+        Console.WriteLine($"Steering Angle        : {wheelangle,6:F2}°     ");
+        Console.WriteLine($"Natural Inertia       : {NaturalInertia,6:F2}%     ");
         Console.WriteLine($"Natural Inertia ratio : {inertRatio,6:F2}%     ");
-        Console.WriteLine($"Spring strength : {spring,6:F2}N/m     ");
-        Console.WriteLine($"Steering Velocity : {wheelvel,6:F2}°/s   ");
-        Console.WriteLine($"Steering Acceleration : {wheelaccel,6:F2}°/s²   ");
-        Console.WriteLine($"Throttle         : {throttle,6}        ");
-        Console.WriteLine($"Brake            : {brake,6}           ");
+        Console.WriteLine($"Spring strength       : {spring,6:F2}        ");
+        Console.WriteLine($"Steering Velocity     : {wheelvel,6:F2}°/s   ");
+        Console.WriteLine($"Steering Acceleration : {wheelaccel,6:F2}°/s²  ");
+        Console.WriteLine($"Throttle              : {throttle,6}        ");
+        Console.WriteLine($"Brake                 : {brake,6}           ");
    
-    
         // Reset cursor to the top line for real-time refreshing
         Console.SetCursorPosition(0, 0);
         Thread.Sleep(5); // ~200Hz physics loop tick rate
     }
-    removeMozaSDK();
-}
 
+    // removeMozaSDK(); // Note: Reached if the loop ever breaks
+}
 // Example placeholder for your custom physics/steering rack calculation
 // float CalculateSteeringRackForce(float currentAngle, float pastAngle = 0.0f, float deltaTime = 0.005f)
 // {
