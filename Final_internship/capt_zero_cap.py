@@ -49,11 +49,6 @@ CURRENT_PHASE_2_NAME = "AO_ch16"
 R5_TORQUE_SIGNAL_NAME = "Moza R5 Torque"
 R5_ANGLE_SIGNAL_NAME = "Moza R5 Angle"
 
-# Placeholder signals for Transparency Analysis tab
-BACK_DRIVABILITY_SIGNAL = "Back-drivability"
-TRANSPARENCY_SIGNAL = "Transparency"
-HAPTIC_FIDELITY_SIGNAL = "Haptic Fidelity"
-
 HAPTIC_FIDEL = "c:\\Users\\javot\\Desktop\\sofia_code\\sys_id_results\\res85.png"    
 SYS_ID = "c:\\Users\\javot\\Desktop\\sofia_code\\sys_id_capt.jpg"
 MOZA_FILE = "c:\\Users\\javot\\MozaIntegration\\MozaIntegration\\moza_data.csv"
@@ -443,7 +438,6 @@ class TransferFunctionPage(QWidget):
 
         # Generate sample Bode curves
         frequencies = np.logspace(-1, 3, 200) # 0.1 Hz to 1000 Hz
-        # Simple second-order system approximation
         omega_n = 65.29
         zeta = 6.92
         mag = 20 * np.log10(1.0 / np.sqrt((1 - (frequencies/omega_n)**2)**2 + (2*zeta*frequencies/omega_n)**2))
@@ -470,6 +464,87 @@ class TransferFunctionPage(QWidget):
         return plot
 
 
+class MozaR5TelemetryPage(QWidget):
+    """Dedicated Moza R5 Telemetry tab with live or file-loaded plots for Angle, Velocity, Acceleration, and Torque."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        header_layout = QHBoxLayout()
+        title = QLabel("Moza R5 Real-Time & CSV Analysis")
+        title.setStyleSheet("font-size: 18px; font-weight: bold; color: #ffffff;")
+        
+        load_btn = QPushButton("Load Moza Telemetry CSV")
+        load_btn.setObjectName("SaveButton")
+        load_btn.clicked.connect(self.load_telemetry_csv)
+
+        header_layout.addWidget(title)
+        header_layout.addStretch()
+        header_layout.addWidget(load_btn)
+        layout.addLayout(header_layout)
+
+        # 2x2 Grid Layout for the 4 Telemetry Channels
+        grid = QGridLayout()
+        grid.setSpacing(10)
+
+        self.plot_angle = self._create_plot("Steering Angle", "Angle (°)", "#00d2ff")
+        self.plot_vel = self._create_plot("Angular Velocity", "Velocity (°/s)", "#10b981")
+        self.plot_acc = self._create_plot("Angular Acceleration", "Acceleration (°/s²)", "#ef4444")
+        self.plot_torque = self._create_plot("Torque / Spring Force", "Torque (Nm)", "#f59e0b")
+
+        grid.addWidget(self.plot_angle, 0, 0)
+        grid.addWidget(self.plot_vel, 0, 1)
+        grid.addWidget(self.plot_acc, 1, 0)
+        grid.addWidget(self.plot_torque, 1, 1)
+
+        layout.addLayout(grid, 1)
+
+    def _create_plot(self, title: str, y_label: str, color: str) -> pg.PlotWidget:
+        plot = pg.PlotWidget(title=f"<span style='color:#ffffff; font-size:12pt;'>{title}</span>")
+        plot.setBackground("#181b22")
+        plot.showGrid(x=True, y=True, alpha=0.3)
+        plot.setLabel("bottom", "Time (s)", color="#9ca3af")
+        plot.setLabel("left", y_label, color="#9ca3af")
+        
+        if hasattr(self, "plot_angle"):
+            plot.setXLink(self.plot_angle)
+            
+        return plot
+
+    def load_telemetry_csv(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Open Moza Telemetry CSV", "", "CSV Files (*.csv)"
+        )
+        if not file_path:
+            return
+
+        import pandas as pd
+        df = pd.read_csv(file_path)
+
+        if "Timestamp" not in df.columns:
+            return
+
+        time = df["Timestamp"].values
+
+        self.plot_angle.clear()
+        if "Angle_deg" in df.columns:
+            self.plot_angle.plot(time, df["Angle_deg"].values, pen=pg.mkPen("#00d2ff", width=2))
+
+        self.plot_vel.clear()
+        if "Velocity_deg_s" in df.columns:
+            self.plot_vel.plot(time, df["Velocity_deg_s"].values, pen=pg.mkPen("#10b981", width=2))
+
+        self.plot_acc.clear()
+        if "Acceleration_deg_s2" in df.columns:
+            self.plot_acc.plot(time, df["Acceleration_deg_s2"].values, pen=pg.mkPen("#ef4444", width=2))
+
+        self.plot_torque.clear()
+        if "SpringStrength" in df.columns:
+            self.plot_torque.plot(time, df["SpringStrength"].values, pen=pg.mkPen("#f59e0b", width=2))
+
+
 class TransparencyPage(QWidget):
     """Transparency Analysis tab that automatically loads and displays two images side-by-side."""
     def __init__(self, image_path_1: str, image_path_2: str, parent=None):
@@ -482,16 +557,13 @@ class TransparencyPage(QWidget):
         title.setStyleSheet("font-size: 18px; font-weight: bold; color: #ffffff;")
         layout.addWidget(title)
 
-        # Horizontal layout to hold the two images side-by-side
         images_layout = QHBoxLayout()
 
-        # Image Label 1
         self.image_label_1 = QLabel()
         self.image_label_1.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.image_label_1.setMinimumHeight(350)
         self._load_image(image_path_1, self.image_label_1)
 
-        # Image Label 2
         self.image_label_2 = QLabel()
         self.image_label_2.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.image_label_2.setMinimumHeight(350)
@@ -669,7 +741,6 @@ class HomePage(QWidget):
         layout.addWidget(title)
         layout.addWidget(subtitle)
 
-        # Overview Grid Cards Container
         grid_layout = QGridLayout()
         grid_layout.setSpacing(15)
 
@@ -749,23 +820,18 @@ class MainWindow(QMainWindow):
         self.spring_page = SpringPage()
         self.stability_page = StabilityPage()
         self.transparency_page = TransparencyPage(HAPTIC_FIDEL, SYS_ID)
+        self.moza_r5_page = MozaR5TelemetryPage()
         
-        # New Transfer Function Pages
         self.capt_tf_page = TransferFunctionPage(
             "CAPT Motor Characterisation Transfer Function",
             "Frequency response analysis modeling closed-loop actuation dynamics of the custom CAPT motor.",
             "H_CAPT(s) =  1 / (0.0103 s^2 + 9.31 s + 43.91)"
         )
-        # self.moza_tf_page = TransferFunctionPage(
-        #     "Moza R5 Specifications & Transfer Function",
-        #     "Direct-drive steering feedback system characterization, torque bandwidth, and frequency response profile.",
-        #     "H_Moza(s) =  1 / (0.0103 s^2 + 9.31 s + 43.91)"
-        # )
 
         tabs = QTabWidget()
         tabs.addTab(self.signal_plot_page, "Live Signals")
         tabs.addTab(HomePage(), "Home")
-        #tabs.addTab(self.moza_tf_page, "Moza R5 specs")
+        tabs.addTab(self.moza_r5_page, "Moza R5 Telemetry")
         tabs.addTab(self.stability_page, "Stability Analysis")
         tabs.addTab(self.transparency_page, "Transparency Analysis")
         tabs.addTab(self.capt_tf_page, "CAPT Motor Characterisation")
@@ -810,57 +876,36 @@ class MainWindow(QMainWindow):
         if self.wheel is not None:
             try:
                 pygame.event.pump()
-                raw_axis = self.wheel.get_axis(0)
-                self.latest_angle_moza = raw_axis * 450.0
-                self.latest_torque_moza = abs(raw_axis) * MOZA_R5_MAX_TORQUE
-                self.moza_sock.sendto(struct.pack("<d", self.latest_angle_moza), (CONTROL_IP, CONTROL_PORT))
+                self.latest_angle_moza = self.wheel.get_axis(0) * math.radians(180)
+                self.latest_torque_moza = 0.0
             except Exception:
                 pass
 
         self.signal_plot_page.add_sample(
-            self.latest_angle_rad, self.latest_torque,
-            self.latest_current_1, self.latest_current_2,
-            self.latest_angle_moza, self.latest_torque_moza
+            self.latest_angle_rad,
+            self.latest_torque,
+            self.latest_current_1,
+            self.latest_current_2,
+            self.latest_angle_moza,
+            self.latest_torque_moza
         )
         self.spring_page.update_measurements(self.latest_angle_rad, self.latest_torque)
-        self.transparency_page.add_sample(self.latest_torque, self.latest_angle_rad)
-        self._update_connection_status()
 
     @staticmethod
-    def _read_number(packet: dict, signal_name: str) -> Optional[float]:
-        try:
-            val = float(packet.get(signal_name))
-            return val if math.isfinite(val) else None
-        except (TypeError, ValueError):
-            return None
-
-    def _update_connection_status(self) -> None:
-        if self.last_packet_time is None:
-            self.status_label.setText(f"Waiting for dSPACE on {UDP_IP}:{UDP_PORT}")
-            return
-        elapsed = time.monotonic() - self.last_packet_time
-        status = "Receiving" if elapsed < 1.0 else ("No recent packets" if elapsed < 3.0 else "Connection inactive")
-        self.status_label.setText(f"{status} | Packets: {self.packet_count}")
-
-    def closeEvent(self, event) -> None:
-        self.udp_worker.stop()
-        self.udp_receiver.close()
-        self.angle_sender.close()
-        try:
-            self.moza_sock.close()
-        except OSError:
-            pass
-        pygame.quit()
-        event.accept()
+    def _read_number(packet: dict, key: str) -> Optional[float]:
+        if key in packet:
+            try:
+                val = float(packet[key])
+                if math.isfinite(val):
+                    return val
+            except (TypeError, ValueError):
+                pass
+        return None
 
 
-def main() -> None:
+if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyleSheet(MODERN_STYLE_SHEET)
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
-
-
-if __name__ == "__main__":
-    main()
