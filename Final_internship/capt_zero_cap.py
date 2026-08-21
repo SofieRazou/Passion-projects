@@ -464,7 +464,7 @@ class TransferFunctionPage(QWidget):
 
 
 class MozaR5TelemetryPage(QWidget):
-    """Dedicated Moza R5 Telemetry tab dynamically streaming Angle, Velocity, Acceleration, and Torque from a live CSV."""
+    """Dedicated Moza R5 Telemetry tab robustly streaming data from a live-updating CSV file."""
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
@@ -509,11 +509,10 @@ class MozaR5TelemetryPage(QWidget):
 
         layout.addLayout(grid, 1)
 
-        # File tracking variables
         self.current_file_path = MOZA_FILE
-        self.last_file_size = 0
+        self.last_mod_time = 0
 
-        # Setup Live Polling Timer (Refreshes every 100ms)
+        # Setup Polling Timer (Refreshes every 100ms)
         self.poll_timer = QTimer(self)
         self.poll_timer.timeout.connect(self.update_live_csv)
         self.poll_timer.start(100)
@@ -533,30 +532,37 @@ class MozaR5TelemetryPage(QWidget):
         )
         if file_path:
             self.current_file_path = file_path
-            self.last_file_size = 0  # Reset size tracker to reload fresh
+            self.last_mod_time = 0
 
     def update_live_csv(self):
         if not self.current_file_path:
             return
 
         try:
-            # Check if file size has changed to avoid unnecessary disk reads
             import os
             if not os.path.exists(self.current_file_path):
                 self.status_indicator.setText("● File Not Found")
                 self.status_indicator.setStyleSheet("color: #ef4444; font-weight: bold;")
                 return
 
-            current_size = os.path.getsize(self.current_file_path)
-            if current_size == self.last_file_size:
-                return  # No new data appended yet
+            # Check modification timestamp to prevent unnecessary reads and file lock collisions
+            mod_time = os.path.getmtime(self.current_file_path)
+            if mod_time == self.last_mod_time:
+                return
+            self.last_mod_time = mod_time
 
-            self.last_file_size = current_size
             self.status_indicator.setText("● Live Streaming Active")
             self.status_indicator.setStyleSheet("color: #10b981; font-weight: bold;")
 
-            # Read full dataframe (or tail for performance if files get extremely large)
-            df = pd.read_csv(self.current_file_path)
+            # Read safely via python buffer container to bypass exclusive Windows locks
+            import io
+            with open(self.current_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+            
+            if not content.strip():
+                return
+
+            df = pd.read_csv(io.StringIO(content))
             if df.empty:
                 return
 
@@ -577,10 +583,12 @@ class MozaR5TelemetryPage(QWidget):
             if torque_col and torque_col in df.columns:
                 self.curve_torque.setData(time_arr, df[torque_col].values)
 
-        except Exception as e:
-            self.status_indicator.setText("● Read Error")
+        except (PermissionError, OSError):
+            # Gracefully catch temporary file locks while the external program is actively appending bytes
+            pass
+        except Exception:
+            self.status_indicator.setText("● Parse Warning")
             self.status_indicator.setStyleSheet("color: #f59e0b; font-weight: bold;")
-
 class TransparencyPage(QWidget):
     """Transparency Analysis tab that automatically loads and displays two images side-by-side."""
     def __init__(self, image_path_1: str, image_path_2: str, parent=None):
