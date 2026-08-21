@@ -1,54 +1,51 @@
 function [k_theta_est, b_theta_est] = fcn(tau_h, theta, omega, alpha_acc, dt)
 %#codegen
 
-    % Persistent variables for RLS state persistence across simulation steps
+    % Persistent variables for estimator state persistence across simulation steps
     persistent theta_est P initialized
     
     % Initialization on the first step
     if isempty(initialized)
-        theta_est = [1000; 5]; % Initial parameter guesses [k_theta; b_theta]
-        P = 1e3 * eye(2);      % Initial covariance matrix
+        theta_est = [5000; 10]; % Initial parameter guesses [k_theta; b_theta]
+        P = 100 * eye(2);       % Lower initial covariance to prevent aggressive initial spikes
         initialized = true;
     end
     
-    % Algorithm Parameters
-    lambda = 0.995;            % Forgetting factor
+    % Configuration Parameters
     theta_wall = 0.0;          % Virtual wall boundary angle (rad)
     J = 0.05;                  % Device rotational inertia (kg*m^2)
     
     theta_err = theta - theta_wall;
     
-    % 1. Deadzone filter: Ignore updates when near zero to prevent division by small numbers / explosion
-    deadzone_threshold = 0.005; % rad (approx 0.28 degrees)
-    
-    if theta_err < -deadzone_threshold && abs(omega) > 1e-2
-        % Regressor vector phi
+    % 1. Strict Deadzone: Only update inside the wall and away from zero-crossing noise
+    % Also require minimum velocity to ensure the power equation has sufficient excitation
+    if theta_err < -0.002 && abs(omega) > 0.05
+        
+        % Regressor vector phi = [theta_err * omega; omega^2]
         phi = [theta_err * omega; omega^2];
         
         % Output measurement y = Input Power - Kinetic Power Change
         y = tau_h * omega - J * omega * alpha_acc;
         
-        % 2. Normalization / Covariance clamping to prevent exponential growth
-        denominator = lambda + phi' * P * phi;
+        % 2. Normalized Least Squares Adaptation (Significantly more stable than raw RLS)
+        % Adding a small leakage/regularization factor (epsilon) to prevent division by zero
+        epsilon = 1e-3;
+        phi_norm_sq = phi' * phi;
         
-        % Only update if the denominator is safely above zero
-        if denominator > 1e-4
-            k_gain = P * phi / denominator;
-            theta_est = theta_est + k_gain * (y - phi' * theta_est);
+        if phi_norm_sq > 1e-4
+            % Normalized error formulation
+            prediction_error = y - phi' * theta_est;
             
-            % Update covariance and bound P to prevent windup/explosion
-            P_new = (P - k_gain * phi' * P) / lambda;
+            % Adaptation gain with leakage factor to keep estimates bounded
+            gamma = 0.05; % Adaptation rate (tuning knob for speed vs stability)
             
-            % Trace or max eigenvalue check to clamp P if it grows too large
-            if trace(P_new) < 1e6
-                P = P_new;
-            else
-                P = 1e3 * eye(2); % Reset covariance if it starts blowing up
-            end
+            % Update parameter vector smoothly
+            theta_est = theta_est + (gamma / (epsilon + phi_norm_sq)) * phi * prediction_error;
         end
     end
     
-    % Enforce positive physical limits on estimated rotational parameters
-    k_theta_est = max(0, theta_est(1));
-    b_theta_est = max(0, theta_est(2));
+    % 3. Hard Physical Clamping / Projections
+    % Keeps estimates inside realistic human-haptic bounds (preventing runaway numbers)
+    k_theta_est = min(max(0, theta_est(1)), 50000); % Cap stiffness at 50 kNm/rad
+    b_theta_est = min(max(0, theta_est(2)), 200);   % Cap damping at 200 Nms/rad
 end
