@@ -1,68 +1,71 @@
 function [k_theta_est, b_theta_est] = fcn(tau_h, theta, omega, alpha_acc)
 %#codegen
 
-    % Persistent variables to track memory smoothly across steps
-    persistent k_prev b_prev initialized
+    % Persistent variables for RLS estimation memory
+    persistent Theta P initialized
     
     % Configuration Parameters
     J = 0.0103;                % Device rotational inertia (kg*m^2)
     
-    % Initialization on the first step (all start at zero)
+    % Initialization on the first step
     if isempty(initialized)
-        k_prev = 0.0;
-        b_prev = 0.0;
+        Theta = [0.0; 0.0];    % Initial parameter vector [k; b] starting at zero
+        P = 100 * eye(2);      % Initial covariance matrix
         initialized = true;
     end
     
-    % Default outputs initialize/fallback to previous safe state or zero
-    k_theta_est = k_prev;
-    b_theta_est = b_prev;
+    % Default outputs to current estimates
+    k_theta_est = Theta(1);
+    b_theta_est = Theta(2);
     
-    % Active engagement check: Ensure sufficient motion and non-zero angle/velocity
-    if abs(omega) > 0.005 && abs(theta) > 0.001
+    % Active motion and excitation check (prevents division by zero / noise drift)
+    if abs(omega) > 0.005 || abs(theta) > 0.005
         
-        % Net resistive torque absorbed by the environment
-        net_torque = tau_h - J * alpha_acc;
+        % Regressor vector containing the independent variables [theta; omega]
+        phi = [theta; omega];
         
-        % Power-weighted distribution components using direct angle theta
-        term_k = theta^2;
-        term_b = omega^2;
-        total_term = term_k + term_b;
+        % Measured net torque available for spring and damper absorption
+        y = tau_h - J * alpha_acc;
         
-        if total_term > 1e-5
-            % Allocate torque share based on physical state magnitude safely
-            torque_k = net_torque * (term_k / total_term);
-            torque_b = net_torque * (term_b / total_term);
+        % RLS Algorithm with Forgetting Factor (lambda)
+        lambda = 0.98;         % Memory weighting (lower = faster tracking, higher = smoother)
+        
+        denominator = lambda + phi' * P * phi;
+        
+        if denominator > 1e-5
+            % Compute Kalman-like gain vector
+            K_gain = (P * phi) / denominator;
             
-            % Raw calculations with safeguards against division by zero
-            k_raw = abs(torque_k / (theta + sign(theta) * 1e-6));
-            b_raw = abs(torque_b / (omega + sign(omega) * 1e-6));
+            % Prediction error based on current parameter guesses
+            prediction_error = y - phi' * Theta;
             
-            % Gentle low-pass filter to eliminate chattering and jumps
-            alpha_filter = 0.05; 
+            % Update parameter estimates [k; b]
+            Theta = Theta + K_gain * prediction_error;
             
-            k_prev = (1 - alpha_filter) * k_prev + alpha_filter * k_raw;
-            b_prev = (1 - alpha_filter) * b_prev + alpha_filter * b_raw;
+            % Update and bound covariance matrix P to prevent windup/explosion
+            P_new = (P - K_gain * phi' * P) / lambda;
+            if trace(P_new) < 1e5 && all(isfinite(P_new(:)))
+                P = P_new;
+            else
+                P = 100 * eye(2); % Reset covariance safely if it tries to grow
+            end
         end
         
-        % Strict physical bounding to guarantee no explosions or NaNs
-        k_theta_est = min(max(0, k_prev), 50000);
-        b_theta_est = min(max(0, b_prev), 200);
-        
-        k_prev = k_theta_est;
-        b_prev = b_theta_est;
-        
     else
-        % When motion or angle is near zero, smoothly decay back to zero gracefully
-        decay_rate = 0.1;
-        k_prev = k_prev * (1 - decay_rate);
-        b_prev = b_prev * (1 - decay_rate);
-        
-        k_theta_est = k_prev;
-        b_theta_est = b_prev;
+        % When inactive/stopped, gently leak/decay parameters back to zero
+        decay = 0.02;
+        Theta = Theta * (1 - decay);
     end
     
-    % Final NaN/Inf safety catch
+    % Strict physical bounding to guarantee meaningful and safe values
+    k_theta_est = min(max(0, Theta(1)), 50000); % Bounded between 0 and 50,000 Nm/rad
+    b_theta_est = min(max(0, Theta(2)), 200);   % Bounded between 0 and 200 Nms/rad
+    
+    % Final NaN/Inf safety net
     if ~isfinite(k_theta_est), k_theta_est = 0; end
     if ~isfinite(b_theta_est), b_theta_est = 0; end
+    
+    % Update persistent state vector
+    Theta(1) = k_theta_est;
+    Theta(2) = b_theta_est;
 end
