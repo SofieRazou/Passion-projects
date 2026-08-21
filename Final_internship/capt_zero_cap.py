@@ -464,7 +464,7 @@ class TransferFunctionPage(QWidget):
 
 
 class MozaR5TelemetryPage(QWidget):
-    """Dedicated Moza R5 Telemetry tab parsing Angle, Velocity, Acceleration, and Torque from CSV."""
+    """Dedicated Moza R5 Telemetry tab dynamically streaming Angle, Velocity, Acceleration, and Torque from a live CSV."""
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
@@ -472,19 +472,23 @@ class MozaR5TelemetryPage(QWidget):
         layout.setSpacing(15)
 
         header_layout = QHBoxLayout()
-        title = QLabel("Moza R5 CSV Telemetry Analysis")
+        title = QLabel("Moza R5 Live CSV Telemetry Streaming")
         title.setStyleSheet("font-size: 18px; font-weight: bold; color: #ffffff;")
         
-        load_btn = QPushButton("Load Moza Telemetry CSV")
+        self.status_indicator = QLabel("● Live Streaming Active")
+        self.status_indicator.setStyleSheet("color: #10b981; font-weight: bold;")
+
+        load_btn = QPushButton("Browse CSV File")
         load_btn.setObjectName("SaveButton")
-        load_btn.clicked.connect(self.load_telemetry_csv)
+        load_btn.clicked.connect(self.browse_csv_file)
 
         header_layout.addWidget(title)
+        header_layout.addWidget(self.status_indicator)
         header_layout.addStretch()
         header_layout.addWidget(load_btn)
         layout.addLayout(header_layout)
 
-        # 2x2 Grid Layout for the 4 Telemetry Channels loaded from CSV
+        # 2x2 Grid Layout for Telemetry Channels
         grid = QGridLayout()
         grid.setSpacing(10)
 
@@ -505,8 +509,14 @@ class MozaR5TelemetryPage(QWidget):
 
         layout.addLayout(grid, 1)
 
-        # Try auto-loading default MOZA_FILE if it exists
-        self.load_telemetry_csv(MOZA_FILE)
+        # File tracking variables
+        self.current_file_path = MOZA_FILE
+        self.last_file_size = 0
+
+        # Setup Live Polling Timer (Refreshes every 100ms)
+        self.poll_timer = QTimer(self)
+        self.poll_timer.timeout.connect(self.update_live_csv)
+        self.poll_timer.start(100)
 
     @staticmethod
     def _create_plot(title: str, y_label: str) -> pg.PlotWidget:
@@ -517,39 +527,59 @@ class MozaR5TelemetryPage(QWidget):
         plot.setLabel("left", y_label, color="#9ca3af")
         return plot
 
-    def load_telemetry_csv(self, file_path: Optional[str] = None):
-        if not file_path or not isinstance(file_path, str):
-            file_path, _ = QFileDialog.getOpenFileName(
-                self, "Open Moza Telemetry CSV", "", "CSV Files (*.csv)"
-            )
-        if not file_path:
+    def browse_csv_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Open Moza Telemetry CSV", "", "CSV Files (*.csv)"
+        )
+        if file_path:
+            self.current_file_path = file_path
+            self.last_file_size = 0  # Reset size tracker to reload fresh
+
+    def update_live_csv(self):
+        if not self.current_file_path:
             return
 
         try:
-            df = pd.read_csv(file_path)
-        except Exception:
-            return
+            # Check if file size has changed to avoid unnecessary disk reads
+            import os
+            if not os.path.exists(self.current_file_path):
+                self.status_indicator.setText("● File Not Found")
+                self.status_indicator.setStyleSheet("color: #ef4444; font-weight: bold;")
+                return
 
-        time_col = next((c for c in df.columns if 'time' in c.lower() or 'timestamp' in c.lower()), None)
-        angle_col = next((c for c in df.columns if 'angle' in c.lower() or 'position' in c.lower()), None)
-        vel_col = next((c for c in df.columns if 'vel' in c.lower() or 'speed' in c.lower()), None)
-        acc_col = next((c for c in df.columns if 'acc' in c.lower()), None)
-        torque_col = next((c for c in df.columns if 'torque' in c.lower() or 'force' in c.lower() or 'spring' in c.lower()), None)
+            current_size = os.path.getsize(self.current_file_path)
+            if current_size == self.last_file_size:
+                return  # No new data appended yet
 
-        if time_col is None:
-            time_col = df.columns[0]
+            self.last_file_size = current_size
+            self.status_indicator.setText("● Live Streaming Active")
+            self.status_indicator.setStyleSheet("color: #10b981; font-weight: bold;")
 
-        time_arr = df[time_col].values
+            # Read full dataframe (or tail for performance if files get extremely large)
+            df = pd.read_csv(self.current_file_path)
+            if df.empty:
+                return
 
-        if angle_col and angle_col in df.columns:
-            self.curve_angle.setData(time_arr, df[angle_col].values)
-        if vel_col and vel_col in df.columns:
-            self.curve_vel.setData(time_arr, df[vel_col].values)
-        if acc_col and acc_col in df.columns:
-            self.curve_acc.setData(time_arr, df[acc_col].values)
-        if torque_col and torque_col in df.columns:
-            self.curve_torque.setData(time_arr, df[torque_col].values)
+            time_col = next((c for c in df.columns if 'time' in c.lower() or 'timestamp' in c.lower()), df.columns[0])
+            angle_col = next((c for c in df.columns if 'angle' in c.lower() or 'position' in c.lower()), None)
+            vel_col = next((c for c in df.columns if 'vel' in c.lower() or 'speed' in c.lower()), None)
+            acc_col = next((c for c in df.columns if 'acc' in c.lower()), None)
+            torque_col = next((c for c in df.columns if 'torque' in c.lower() or 'force' in c.lower() or 'spring' in c.lower()), None)
 
+            time_arr = df[time_col].values
+
+            if angle_col and angle_col in df.columns:
+                self.curve_angle.setData(time_arr, df[angle_col].values)
+            if vel_col and vel_col in df.columns:
+                self.curve_vel.setData(time_arr, df[vel_col].values)
+            if acc_col and acc_col in df.columns:
+                self.curve_acc.setData(time_arr, df[acc_col].values)
+            if torque_col and torque_col in df.columns:
+                self.curve_torque.setData(time_arr, df[torque_col].values)
+
+        except Exception as e:
+            self.status_indicator.setText("● Read Error")
+            self.status_indicator.setStyleSheet("color: #f59e0b; font-weight: bold;")
 
 class TransparencyPage(QWidget):
     """Transparency Analysis tab that automatically loads and displays two images side-by-side."""
