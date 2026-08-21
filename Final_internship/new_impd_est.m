@@ -1,66 +1,77 @@
-function [kappa_est, b_est] = Responsive_Impedance_Estimator(torque, angle, velocity, dt)
+function [kappa_est, b_est] = TransferFunction_Impedance_Estimator(torque, angle, velocity, dt)
 %#codegen
-% RESPONSIVE IMPEDANCE ESTIMATOR
-% Smoothly tracks changes in kappa and b using torque, angle, and velocity.
+% TRANSFER FUNCTION MODEL-BASED IMPEDANCE ESTIMATOR (USING STATE-VARIABLE FILTERS)
+% Estimates kappa and b by matching filtered torque to a 2nd-order transfer function model.
 
-%% Persistent Filter States
-persistent F_tt F_tv F_vv F_tau_t F_tau_v kappa_curr b_curr alpha
+%% Persistent States for Filtered Signals (Simulating Continuous Transfer Functions)
+persistent z1_tau z2_tau z1_th z2_th kappa_prev b_prev
 
 %% Initialization
-if isempty(F_tt)
-    F_tt     = 0.0; 
-    F_tv     = 0.0; 
-    F_vv     = 0.0; 
-    F_tau_t  = 0.0; 
-    F_tau_v  = 0.0; 
+if isempty(z1_tau)
+    z1_tau = 0.0; z2_tau = 0.0;
+    z1_th  = 0.0; z2_th  = 0.0;
     
-    % A lower alpha (e.g., 0.90 to 0.95) allows the estimator to react 
-    % much faster and change smoothly instead of freezing or staying flat.
-    alpha    = 0.92; 
-    
-    kappa_curr = 1.816; % Initial guess
-    b_curr     = 0.01;  % Initial guess
+    kappa_prev = 1.816;
+    b_prev     = 0.01;
 end
 
-%% 1. Instantaneous Products from Model Variables
-tt    = angle * angle;
-tv    = angle * velocity;
-vv    = velocity * velocity;
-tau_t = torque * angle;
-tau_v = torque * velocity;
+%% 1. Define Filter Transfer Function Parameters (Cutoff frequency omega_c)
+% This acts as our modulating transfer function to clean up derivatives
+omega_c = 50.0; % Filter bandwidth (rad/s)
+alpha1  = 2 * omega_c;
+alpha2  = omega_c^2;
 
-%% 2. Fast Low-Pass Filtering (Sliding Window Effect)
-F_tt     = alpha * F_tt    + (1 - alpha) * tt;
-F_tv     = alpha * F_tv    + (1 - alpha) * tv;
-F_vv     = alpha * F_vv    + (1 - alpha) * vv;
-F_tau_t  = alpha * F_tau_t + (1 - alpha) * tau_t;
-F_tau_v  = alpha * F_tau_v + (1 - alpha) * tau_v;
+%% 2. Apply State-Variable Filters (Continuous Transfer Function Simulation via Euler/Tustin)
+% We filter torque and angle to get clean position, velocity, and acceleration estimates
+% s^2 * X(s) -> filtered acceleration
+% s * X(s)   -> filtered velocity
+% X(s)       -> filtered position
 
-%% 3. Solve 2x2 System with Small Regularization for Smoothness
-epsilon_reg = 1e-5; % Keeps matrix invertible without locking the values
+% Filter Torque
+dz1_tau = z2_tau;
+dz2_tau = -alpha2 * z1_tau - alpha1 * z2_tau + torque;
+z1_tau  = z1_tau + dz1_tau * dt;
+z2_tau  = z2_tau + dz2_tau * dt;
+tau_f   = z1_tau * alpha2; % Filtered torque
 
-A11 = F_tt + epsilon_reg;
-A12 = F_tv;
-A21 = F_tv;
-A22 = F_vv + epsilon_reg;
+% Filter Angle
+dz1_th  = z2_th;
+dz2_th  = -alpha2 * z1_th - alpha1 * z2_th + angle;
+z1_th   = z1_th + dz1_th * dt;
+z2_th   = z2_th + dz2_th * dt;
+th_f    = z1_th * alpha2;       % Filtered angle (x)
+v_f     = z2_th * alpha2;       % Filtered velocity (dx/dt)
+acc_f   = (-alpha2 * z1_th - alpha1 * z2_th) * alpha2; % Filtered acceleration (d2x/dt2)
 
-det_A = (A11 * A22) - (A12 * A21);
+%% 3. Work Backward from the Model Equation
+% Model: Tau = J*acc + b*velocity + kappa*angle
+% If we assume inertia J is known or small, we solve for kappa and b using the filtered signals:
+% Tau_f = b * v_f + kappa * th_f  (ignoring inertia or including it if tracked)
 
-if abs(det_A) > 1e-7
-    inv_det = 1.0 / det_A;
+% Construct matrix from filtered transfer function outputs
+M11 = th_f * th_f;
+M12 = th_f * v_f;
+M22 = v_f * v_f;
+
+R1  = tau_f * th_f;
+R2  = tau_f * v_f;
+
+det_M = (M11 * M22) - (M12 * M12);
+
+epsilon_reg = 1e-4;
+if abs(det_M) > epsilon_reg
+    inv_det = 1.0 / (det_M + epsilon_reg);
+    kappa_raw = inv_det * ( M22 * R1 - M12 * R2);
+    b_raw     = inv_det * (-M12 * R1 + M11 * R2);
     
-    % Direct calculation working backward from the torque and model equations
-    kappa_raw = inv_det * ( A22 * F_tau_t - A12 * F_tau_v);
-    b_raw     = inv_det * (-A21 * F_tau_t + A11 * F_tau_v);
-    
-    % Smooth blending (Exponential smoothing on the output for silky transitions)
-    smooth_factor = 0.2; % Higher = faster tracking, Lower = smoother
-    kappa_curr = (1 - smooth_factor) * kappa_curr + smooth_factor * kappa_raw;
-    b_curr     = (1 - smooth_factor) * b_curr     + smooth_factor * b_raw;
+    % Smooth blending
+    smooth = 0.15;
+    kappa_prev = (1 - smooth) * kappa_prev + smooth * kappa_raw;
+    b_prev     = (1 - smooth) * b_prev     + smooth * b_raw;
 end
 
-%% 4. Apply Physical Bounds
-kappa_est = max(0.0, kappa_curr);
-b_est     = max(0.0, b_curr);
+%% 4. Apply Physical Constraints
+kappa_est = max(0.0, kappa_prev);
+b_est     = max(0.0, b_prev);
 
 end
