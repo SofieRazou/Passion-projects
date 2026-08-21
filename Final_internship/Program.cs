@@ -2,92 +2,89 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
 using static mozaAPI.mozaAPI;
 
-[DllImport("kernel32.dll")]
-static extern IntPtr GetConsoleWindow();
-
-// Run the live telemetry and physics loop
-RunPhysicsTelemetryLoop();
-
-Console.WriteLine("Program finished.");
-return;
-
-void RunPhysicsTelemetryLoop()
+class Program
 {
-    Console.WriteLine("Starting Moza Physics & Telemetry Loop...");
-    installMozaSDK();
+    [DllImport("kernel32.dll")]
+    static extern IntPtr GetConsoleWindow();
 
-    // Properly initialize using the Moza SDK's error code enum
-    ERRORCODE err = ERRORCODE.NORMAL;
-
-    IntPtr hWnd = GetConsoleWindow();
-
-    var wheelangle = 0.0f;
-    var wheelvel = 0.0f;
-    var wheelaccel = 0.0f;
-    
-    // Create a unique CSV filename based on the current timestamp
-    string csvFileName = $"moza_telemetry_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
-
-    // Initialize the StreamWriter with AutoFlush enabled to prevent data loss
-    using (StreamWriter writer = new StreamWriter(csvFileName, append: false))
+    static void Main(string[] args)
     {
-        writer.AutoFlush = true;
+        Console.WriteLine("Starting Moza Physics & Telemetry Loop...");
+        installMozaSDK();
 
-        // Write the CSV header row
-        writer.WriteLine("Timestamp,Angle_deg,Velocity_deg_s,Acceleration_deg_s2,NaturalInertia_pct,InertiaRatio_pct,SpringStrength,Throttle,Brake");
+        IntPtr hWnd = GetConsoleWindow();
 
-        Console.Clear();
-
-        Stopwatch stopwatch = Stopwatch.StartNew();
-
-        while (true)
-        {
-            // 1. Read incoming hardware telemetry using the SDK's expected ref error type
-            var HIDDATA = getHIDData(ref err);
-            
-            if (!float.IsNaN(HIDDATA.fSteeringWheelAngle))
-            {
-                wheelangle = HIDDATA.fSteeringWheelAngle;      
-            }
-            if (!float.IsNaN(HIDDATA.fSteeringWheelVelocity))
-            {
-                wheelvel = HIDDATA.fSteeringWheelVelocity;      
-            }  
-            if (!float.IsNaN(HIDDATA.fSteeringWheelAcceleration))
-            {
-                wheelaccel = HIDDATA.fSteeringWheelAcceleration;      
-            }
+        float wheelangle = 0.0f;
+        float wheelvel = 0.0f;
+        float wheelaccel = 0.0f;
         
-            var NaturalInertia = getMotorNaturalInertia(ref err);
-            var inertRatio = getMotorNaturalInertiaRatio(ref err);
-            var spring = getMotorSpringStrength(ref err);
+        // Create a unique CSV filename based on the current timestamp
+        string csvFileName = $"moza_telemetry_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+
+        // Initialize the StreamWriter with AutoFlush enabled to prevent data loss
+        using (StreamWriter writer = new StreamWriter(csvFileName, append: false))
+        {
+            writer.AutoFlush = true;
+
+            // Write the CSV header row
+            writer.WriteLine("Timestamp,Angle_deg,Velocity_deg_s,Acceleration_deg_s2,NaturalInertia_pct,InertiaRatio_pct,SpringStrength,Throttle,Brake");
+
+            Console.Clear();
+
+            Stopwatch stopwatch = Stopwatch.StartNew();
+
+            while (true)
+            {
+                // Use a standard integer for error status to avoid missing enum type errors
+                int errCode = 0;
+
+                // 1. Read incoming hardware telemetry
+                var HIDDATA = getHIDData(ref errCode);
+                
+                if (!float.IsNaN(HIDDATA.fSteeringWheelAngle))
+                {
+                    wheelangle = HIDDATA.fSteeringWheelAngle;      
+                }
+                if (!float.IsNaN(HIDDATA.fSteeringWheelVelocity))
+                {
+                    wheelvel = HIDDATA.fSteeringWheelVelocity;      
+                }  
+                if (!float.IsNaN(HIDDATA.fSteeringWheelAcceleration))
+                {
+                    wheelaccel = HIDDATA.fSteeringWheelAcceleration;      
+                }
             
-            var throttle = HIDDATA.throttle;
-            var brake = HIDDATA.brake;
+                var NaturalInertia = getMotorNaturalInertia(ref errCode);
+                var inertRatio = getMotorNaturalInertiaRatio(ref errCode);
+                var spring = getMotorSpringStrength(ref errCode);
+                
+                var throttle = HIDDATA.throttle;
+                var brake = HIDDATA.brake;
 
-            // Get elapsed time in seconds since loop started
-            double timestamp = stopwatch.Elapsed.TotalSeconds;
+                // Get elapsed time in seconds since loop started
+                double timestamp = stopwatch.Elapsed.TotalSeconds;
 
-            // Write current telemetry frame to the CSV file
-            writer.WriteLine($"{timestamp:F4},{wheelangle},{wheelvel},{wheelaccel},{NaturalInertia},{inertRatio},{spring},{throttle},{brake}");
+                // Write current telemetry frame to the CSV file
+                writer.WriteLine($"{timestamp:F4},{wheelangle},{wheelvel},{wheelaccel},{NaturalInertia},{inertRatio},{spring},{throttle},{brake}");
 
-            // Display telemetry live on screen
-            Console.WriteLine($"--- MOZA Physics & Telemetry ---");
-            Console.WriteLine($"File Saving To        : {csvFileName}     ");
-            Console.WriteLine($"Steering Angle        : {wheelangle,6:F2}°     ");
-            Console.WriteLine($"Natural Inertia       : {NaturalInertia,6:F2}%     ");
-            Console.WriteLine($"Natural Inertia ratio : {inertRatio,6:F2}%     ");
-            Console.WriteLine($"Spring strength       : {spring,6:F2}        ");
-            Console.WriteLine($"Steering Velocity     : {wheelvel,6:F2}°/s   ");
-            Console.WriteLine($"Steering Acceleration : {wheelaccel,6:F2}°/s²  ");
-            Console.WriteLine($"Throttle              : {throttle,6}        ");
-            Console.WriteLine($"Brake                 : {brake,6}          ");
-   
-            // Reset cursor to the top line for real-time refreshing
-            Console.SetCursorPosition(0, 0);
-            Thread.Sleep(5); // ~200Hz physics loop tick rate
+                // Display telemetry live on screen
+                Console.SetCursorPosition(0, 0);
+                Console.WriteLine("--- MOZA Physics & Telemetry ---");
+                Console.WriteLine($"File Saving To        : {csvFileName}     ");
+                Console.WriteLine($"Steering Angle        : {wheelangle,6:F2}°     ");
+                Console.WriteLine($"Natural Inertia       : {NaturalInertia,6:F2}%     ");
+                Console.WriteLine($"Natural Inertia ratio : {inertRatio,6:F2}%     ");
+                Console.WriteLine($"Spring strength       : {spring,6:F2}        ");
+                Console.WriteLine($"Steering Velocity     : {wheelvel,6:F2}°/s   ");
+                Console.WriteLine($"Steering Acceleration : {wheelaccel,6:F2}°/s²  ");
+                Console.WriteLine($"Throttle              : {throttle,6}        ");
+                Console.WriteLine($"Brake                 : {brake,6}          ");
+       
+                Thread.Sleep(5); // ~200Hz physics loop tick rate
+            }
         }
     }
 }
