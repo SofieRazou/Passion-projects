@@ -1,67 +1,46 @@
 class TransparencyPage(QWidget):
-    """Transparency Analysis tab with support for loading and displaying two images."""
-    def __init__(self, parent=None):
+    """Transparency Analysis tab that automatically loads and displays two images side-by-side."""
+    def __init__(self, image_path_1: str, image_path_2: str, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
 
-        title = QLabel("Transparency Analysis - Image Comparison")
+        title = QLabel("Transparency Analysis - Automatic Image Comparison")
         title.setStyleSheet("font-size: 18px; font-weight: bold; color: #ffffff;")
         layout.addWidget(title)
 
-        # Create a horizontal layout to hold the two image containers side-by-side
+        # Horizontal layout to hold the two images side-by-side
         images_layout = QHBoxLayout()
 
-        # Image Panel 1
-        panel1_layout = QVBoxLayout()
-        self.image_label_1 = QLabel("No Image 1 Loaded")
+        # Image Label 1
+        self.image_label_1 = QLabel()
         self.image_label_1.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image_label_1.setStyleSheet("border: 2px dashed #374151; color: #9ca3af; background: #181b22; border-radius: 8px;")
         self.image_label_1.setMinimumHeight(350)
-        
-        load_btn_1 = QPushButton("Load Image 1")
-        load_btn_1.clicked.connect(lambda: self.load_photo(self.image_label_1))
-        
-        panel1_layout.addWidget(self.image_label_1, 1)
-        panel1_layout.addWidget(load_btn_1)
+        self._load_image(image_path_1, self.image_label_1)
 
-        # Image Panel 2
-        panel2_layout = QVBoxLayout()
-        self.image_label_2 = QLabel("No Image 2 Loaded")
+        # Image Label 2
+        self.image_label_2 = QLabel()
         self.image_label_2.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image_label_2.setStyleSheet("border: 2px dashed #374151; color: #9ca3af; background: #181b22; border-radius: 8px;")
         self.image_label_2.setMinimumHeight(350)
-        
-        load_btn_2 = QPushButton("Load Image 2")
-        load_btn_2.clicked.connect(lambda: self.load_photo(self.image_label_2))
-        
-        panel2_layout.addWidget(self.image_label_2, 1)
-        panel2_layout.addWidget(load_btn_2)
+        self._load_image(image_path_2, self.image_label_2)
 
-        images_layout.addLayout(panel1_layout)
-        images_layout.addLayout(panel2_layout)
+        images_layout.addWidget(self.image_label_1, 1)
+        images_layout.addWidget(self.image_label_2, 1)
 
         layout.addLayout(images_layout, 1)
 
-    def load_photo(self, target_label: QLabel) -> None:
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Open Image", "", "Image Files (*.png *.jpg *.bmp *.jpeg)"
-        )
-        if file_path:
-            pixmap = QPixmap(file_path)
-            if not pixmap.isNull():
-                target_label.setPixmap(pixmap.scaled(
-                    target_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
-                ))
-                target_label.setStyleSheet("border: none; background: transparent;")
-
-
-
-
-
-
-
+    @staticmethod
+    def _load_image(file_path: str, target_label: QLabel) -> None:
+        pixmap = QPixmap(file_path)
+        if not pixmap.isNull():
+            target_label.setPixmap(pixmap.scaled(
+                target_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+            ))
+            target_label.setStyleSheet("border: none; background: transparent;")
+        else:
+            target_label.setText(f"Could not load image from:\n{file_path}")
+            target_label.setStyleSheet("border: 2px dashed #374151; color: #ef4444; background: #181b22; border-radius: 8px;")
 
 
 
