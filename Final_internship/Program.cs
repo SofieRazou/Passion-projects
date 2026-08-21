@@ -17,7 +17,6 @@ void RunPhysicsTelemetryLoop()
 {
     Console.WriteLine("Starting Moza Physics & Telemetry Loop...");
     installMozaSDK();
-    ERRORCODE err = ERRORCODE.NORMAL;
 
     IntPtr hWnd = GetConsoleWindow();
 
@@ -43,6 +42,8 @@ void RunPhysicsTelemetryLoop()
         while (true)
         {
             // 1. Read incoming hardware telemetry (steering angle, pedals)
+            // If your API requires a ref argument, pass a local dummy integer variable like `int err = 0;`
+            int err = 0;
             var HIDDATA = getHIDData(ref err);
             
             if (!float.IsNaN(HIDDATA.fSteeringWheelAngle))
@@ -88,8 +89,6 @@ void RunPhysicsTelemetryLoop()
             Thread.Sleep(5); // ~200Hz physics loop tick rate
         }
     }
-
-    // removeMozaSDK(); // Note: Reached if the loop ever breaks out of the using block
 }
 // Example placeholder for your custom physics/steering rack calculation
 // float CalculateSteeringRackForce(float currentAngle, float pastAngle = 0.0f, float deltaTime = 0.005f)
