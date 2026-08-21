@@ -1,52 +1,3 @@
-class TransparencyPage(QWidget):
-    """Transparency Analysis tab that automatically loads and displays two images side-by-side."""
-    def __init__(self, image_path_1: str, image_path_2: str, parent=None):
-        super().__init__(parent)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
-
-        title = QLabel("Transparency Analysis - Automatic Image Comparison")
-        title.setStyleSheet("font-size: 18px; font-weight: bold; color: #ffffff;")
-        layout.addWidget(title)
-
-        # Horizontal layout to hold the two images side-by-side
-        images_layout = QHBoxLayout()
-
-        # Image Label 1
-        self.image_label_1 = QLabel()
-        self.image_label_1.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image_label_1.setMinimumHeight(350)
-        self._load_image(image_path_1, self.image_label_1)
-
-        # Image Label 2
-        self.image_label_2 = QLabel()
-        self.image_label_2.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image_label_2.setMinimumHeight(350)
-        self._load_image(image_path_2, self.image_label_2)
-
-        images_layout.addWidget(self.image_label_1, 1)
-        images_layout.addWidget(self.image_label_2, 1)
-
-        layout.addLayout(images_layout, 1)
-
-    @staticmethod
-    def _load_image(file_path: str, target_label: QLabel) -> None:
-        pixmap = QPixmap(file_path)
-        if not pixmap.isNull():
-            target_label.setPixmap(pixmap.scaled(
-                target_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
-            ))
-            target_label.setStyleSheet("border: none; background: transparent;")
-        else:
-            target_label.setText(f"Could not load image from:\n{file_path}")
-            target_label.setStyleSheet("border: 2px dashed #374151; color: #ef4444; background: #181b22; border-radius: 8px;")
-
-
-
-
-
-
 import json
 import math
 import socket
@@ -58,6 +9,7 @@ from threading import Lock
 from typing import Optional
 import numpy as np
 import pyqtgraph as pg
+import pygame
 from PyQt6.QtCore import QPointF, Qt, QTimer, QThread
 from PyQt6.QtGui import QColor, QPainter, QPen, QPolygonF, QPixmap
 from PyQt6.QtWidgets import (
@@ -74,7 +26,6 @@ from PyQt6.QtWidgets import (
     QWidget,
     QScrollArea,
     QFrame,
-    QMessageBox,
 )
 
 # ---------------------------------------------------------------------------
@@ -98,8 +49,14 @@ CURRENT_PHASE_2_NAME = "AO_ch16"
 R5_TORQUE_SIGNAL_NAME = "Moza R5 Torque"
 R5_ANGLE_SIGNAL_NAME = "Moza R5 Angle"
 
+# Placeholder signals for Transparency Analysis tab
+BACK_DRIVABILITY_SIGNAL = "Back-drivability"
 TRANSPARENCY_SIGNAL = "Transparency"
 HAPTIC_FIDELITY_SIGNAL = "Haptic Fidelity"
+
+HAPTIC_FIDEL = "c:\\Users\\javot\\Desktop\\sofia_code\\sys_id_results\\res85.png"    
+SYS_ID = "c:\\Users\\javot\\Desktop\\sofia_code\\sys_id_capt.jpg"
+MOZA_FILE = "c:\\Users\\javot\\MozaIntegration\\MozaIntegration\\moza_data.csv"
 
 PLOT_WINDOW_SECONDS = 10.0
 GUI_UPDATE_PERIOD_MS = 20  # 50 Hz UI Refresh Rate
@@ -243,7 +200,7 @@ class UdpSender:
 class UdpWorkerThread(QThread):
     """Background thread handling high-frequency socket polling safely."""
     
-    def __init__(self, receiver: Optional[UdpReceiver], sender: Optional[UdpSender]):
+    def __init__(self, receiver: UdpReceiver, sender: UdpSender):
         super().__init__()
         self.receiver = receiver
         self.sender = sender
@@ -253,24 +210,21 @@ class UdpWorkerThread(QThread):
 
     def run(self) -> None:
         while self._is_running:
-            if self.receiver is not None:
-                packet = self.receiver.read_latest_packet()
-                if packet is not None:
-                    angle_val = packet.get(ANGLE_SIGNAL_NAME)
-                    if angle_val is not None and self.sender is not None:
-                        try:
-                            numeric_angle = float(angle_val)
-                            if math.isfinite(numeric_angle):
-                                self.sender.send_angle(numeric_angle)
-                        except (TypeError, ValueError):
-                            pass
+            packet = self.receiver.read_latest_packet()
+            if packet is not None:
+                angle_val = packet.get(ANGLE_SIGNAL_NAME)
+                if angle_val is not None:
+                    try:
+                        numeric_angle = float(angle_val)
+                        if math.isfinite(numeric_angle):
+                            self.sender.send_angle(numeric_angle)
+                    except (TypeError, ValueError):
+                        pass
 
-                    with self.buffer_lock:
-                        self.latest_packet = packet
-                else:
-                    QThread.msleep(5)
+                with self.buffer_lock:
+                    self.latest_packet = packet
             else:
-                QThread.msleep(100)
+                QThread.msleep(1)
 
     def get_latest_packet(self) -> Optional[dict]:
         with self.buffer_lock:
@@ -293,7 +247,7 @@ class SpringWidget(QWidget):
         self.angle_rad = 0.0
         self.measured_torque = 0.0
         self.reference_angle_rad = 0.0
-        self.kappa = 43.91
+        self.kappa = 1.0
         self.setMinimumHeight(300)
 
         self._axis_pen = QPen(QColor(140, 140, 140), 1, Qt.PenStyle.DashLine)
@@ -396,10 +350,10 @@ class SpringPage(QWidget):
         self.torque_label = QLabel("Measured torque: 0.000 Nm")
 
         self.kappa_input = QDoubleSpinBox()
-        self.kappa_input.setRange(0.0, 200.0)
-        self.kappa_input.setDecimals(2)
-        self.kappa_input.setSingleStep(1.0)
-        self.kappa_input.setValue(43.91)
+        self.kappa_input.setRange(0.0, 20.0)
+        self.kappa_input.setDecimals(3)
+        self.kappa_input.setSingleStep(0.1)
+        self.kappa_input.setValue(1.0)
         self.kappa_input.setSuffix(" Nm/rad")
 
         reset_button = QPushButton("Reset reference")
@@ -457,7 +411,7 @@ class StabilityPage(QWidget):
 
 class TransferFunctionPage(QWidget):
     """Dedicated Transfer Function & Frequency Response page for system characterization."""
-    def __init__(self, title_text: str, description_text: str, default_tf_eq: str, J: float, b: float, kappa: float, parent=None):
+    def __init__(self, title_text: str, description_text: str, default_tf_eq: str, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
@@ -479,6 +433,7 @@ class TransferFunctionPage(QWidget):
         eq_layout.addWidget(eq_title)
         eq_layout.addWidget(eq_content)
 
+        # Bode Plots (Magnitude & Phase)
         plot_layout = QHBoxLayout()
         self.mag_plot = self._create_plot("Bode Magnitude Response", "Gain", "dB")
         self.phase_plot = self._create_plot("Bode Phase Response", "Phase", "°")
@@ -486,15 +441,13 @@ class TransferFunctionPage(QWidget):
         plot_layout.addWidget(self.mag_plot)
         plot_layout.addWidget(self.phase_plot)
 
-        frequencies = np.logspace(-1, 3, 200)
-        omega = 2 * np.pi * frequencies
-        
-        real_part = kappa - J * (omega**2)
-        imag_part = b * omega
-        
-        mag_val = 1.0 / np.sqrt(real_part**2 + imag_part**2)
-        mag = 20 * np.log10(mag_val / mag_val[0])
-        phase = -np.arctan2(imag_part, real_part) * (180 / np.pi)
+        # Generate sample Bode curves
+        frequencies = np.logspace(-1, 3, 200) # 0.1 Hz to 1000 Hz
+        # Simple second-order system approximation
+        omega_n = 65.29
+        zeta = 6.92
+        mag = 20 * np.log10(1.0 / np.sqrt((1 - (frequencies/omega_n)**2)**2 + (2*zeta*frequencies/omega_n)**2))
+        phase = -np.arctan2(2*zeta*(frequencies/omega_n), 1 - (frequencies/omega_n)**2) * (180 / np.pi)
 
         self.mag_plot.plot(frequencies, mag, pen=pg.mkPen(color=(37, 99, 235), width=2))
         self.phase_plot.plot(frequencies, phase, pen=pg.mkPen(color=(168, 85, 247), width=2))
@@ -518,84 +471,48 @@ class TransferFunctionPage(QWidget):
 
 
 class TransparencyPage(QWidget):
-    """Transparency Analysis tab with live interactive plots."""
-    def __init__(self, parent=None):
+    """Transparency Analysis tab that automatically loads and displays two images side-by-side."""
+    def __init__(self, image_path_1: str, image_path_2: str, parent=None):
         super().__init__(parent)
-        self.start_time = time.monotonic()
-        max_pts = int(PLOT_WINDOW_SECONDS * 1000 / GUI_UPDATE_PERIOD_MS) + 100
-
-        self.time_values = deque(maxlen=max_pts)
-        self.transparency_values = deque(maxlen=max_pts)
-        self.haptic_fidelity_values = deque(maxlen=max_pts)
-
-        self.transparency_plot = self._create_plot("Transparency Analysis", "Transparency Index", "")
-        self.fidelity_plot = self._create_plot("Haptic Fidelity Analysis", "Fidelity Score", "%")
-
-        self.transparency_curve = self.transparency_plot.plot(pen=pg.mkPen(color=(0, 200, 100), width=2), name=TRANSPARENCY_SIGNAL)
-        self.fidelity_curve = self.fidelity_plot.plot(pen=pg.mkPen(color=(150, 50, 255), width=2), name=HAPTIC_FIDELITY_SIGNAL)
-
-        save_button = QPushButton("Save Transparency Plots")
-        save_button.setObjectName("SaveButton")
-        save_button.clicked.connect(self.save_plots_to_csv)
-
-        top_layout = QHBoxLayout()
-        top_layout.addStretch()
-        top_layout.addWidget(save_button)
-
-        plot_layout = QVBoxLayout()
-        plot_layout.addWidget(self.transparency_plot)
-        plot_layout.addWidget(self.fidelity_plot)
-
         layout = QVBoxLayout(self)
-        layout.addLayout(top_layout)
-        layout.addLayout(plot_layout, 1)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        title = QLabel("Transparency Analysis - Automatic Image Comparison")
+        title.setStyleSheet("font-size: 18px; font-weight: bold; color: #ffffff;")
+        layout.addWidget(title)
+
+        # Horizontal layout to hold the two images side-by-side
+        images_layout = QHBoxLayout()
+
+        # Image Label 1
+        self.image_label_1 = QLabel()
+        self.image_label_1.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.image_label_1.setMinimumHeight(350)
+        self._load_image(image_path_1, self.image_label_1)
+
+        # Image Label 2
+        self.image_label_2 = QLabel()
+        self.image_label_2.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.image_label_2.setMinimumHeight(350)
+        self._load_image(image_path_2, self.image_label_2)
+
+        images_layout.addWidget(self.image_label_1, 1)
+        images_layout.addWidget(self.image_label_2, 1)
+
+        layout.addLayout(images_layout, 1)
 
     @staticmethod
-    def _create_plot(title: str, y_label: str, units: str) -> pg.PlotWidget:
-        plot = pg.PlotWidget(title=title)
-        plot.setBackground('#181b22')
-        plot.setLabel("bottom", "Time", units="s")
-        plot.setLabel("left", y_label, units=units)
-        plot.showGrid(x=True, y=True, alpha=0.15)
-        return plot
-
-    def add_sample(self, torque_val: float, angle_val: float) -> None:
-        t = time.monotonic() - self.start_time
-        self.time_values.append(t)
-
-        syn_transparency = max(0.0, 1.0 - abs(angle_val) * 0.05)
-        syn_fidelity = min(100.0, max(0.0, 50.0 + torque_val * 10.0))
-
-        self.transparency_values.append(syn_transparency)
-        self.haptic_fidelity_values.append(syn_fidelity)
-
-        self._update_curves()
-
-    def _update_curves(self) -> None:
-        if not self.time_values:
-            return
-
-        times = np.fromiter(self.time_values, dtype=float)
-        self.transparency_curve.setData(times, np.fromiter(self.transparency_values, dtype=float))
-        self.fidelity_curve.setData(times, np.fromiter(self.haptic_fidelity_values, dtype=float))
-
-        latest_time = times[-1]
-        min_time = max(0.0, latest_time - PLOT_WINDOW_SECONDS)
-        max_time = max(PLOT_WINDOW_SECONDS, latest_time)
-
-        for pw in [self.transparency_plot, self.fidelity_plot]:
-            pw.setXRange(min_time, max_time, padding=0)
-
-    def save_plots_to_csv(self) -> None:
-        file_path, _ = QFileDialog.getSaveFileName(self, "Save Transparency Data", "transparency_data.csv", "CSV Files (*.csv)")
-        if file_path:
-            try:
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    f.write("Time(s),Transparency,HapticFidelity\n")
-                    for t, tr, hf in zip(self.time_values, self.transparency_values, self.haptic_fidelity_values):
-                        f.write(f"{t:.4f},{tr:.4f},{hf:.4f}\n")
-            except Exception as e:
-                print(f"Error saving file: {e}")
+    def _load_image(file_path: str, target_label: QLabel) -> None:
+        pixmap = QPixmap(file_path)
+        if not pixmap.isNull():
+            target_label.setPixmap(pixmap.scaled(
+                target_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+            ))
+            target_label.setStyleSheet("border: none; background: transparent;")
+        else:
+            target_label.setText(f"Could not load image from:\n{file_path}")
+            target_label.setStyleSheet("border: 2px dashed #374151; color: #ef4444; background: #181b22; border-radius: 8px;")
 
 
 class SignalPlotPage(QWidget):
@@ -752,6 +669,7 @@ class HomePage(QWidget):
         layout.addWidget(title)
         layout.addWidget(subtitle)
 
+        # Overview Grid Cards Container
         grid_layout = QGridLayout()
         grid_layout.setSpacing(15)
 
@@ -798,99 +716,151 @@ class HomePage(QWidget):
         return card
 
 
+# ---------------------------------------------------------------------------
+# Main Window & Update Loops
+# ---------------------------------------------------------------------------
+
 class MainWindow(QMainWindow):
-    """Main application window tying together all modules and the background UDP loop."""
-    def __init__(self, udp_worker: UdpWorkerThread):
+    def __init__(self):
         super().__init__()
-        self.udp_worker = udp_worker
-        self.setWindowTitle("CAPT Motor & Haptic Interface Telemetry Suite")
-        self.resize(1300, 850)
+        self.setWindowTitle("CAPT Motor Dashboard")
+        self.resize(1150, 820)
 
-        self.tabs = QTabWidget()
-        self.setCentralWidget(self.tabs)
+        self.moza_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.wheel = self._init_joystick()
 
-        self.home_page = HomePage()
-        self.signals_page = SignalPlotPage()
+        self.udp_receiver = UdpReceiver(UDP_IP, UDP_PORT)
+        self.angle_sender = UdpSender(ANGLE_FORWARD_IP, ANGLE_FORWARD_PORT, send_as_binary=True)
+
+        self.udp_worker = UdpWorkerThread(self.udp_receiver, self.angle_sender)
+        self.udp_worker.start()
+
+        self.latest_angle_rad = 0.0
+        self.latest_torque = 0.0
+        self.latest_current_1 = 0.0
+        self.latest_current_2 = 0.0
+        self.latest_angle_moza = 0.0
+        self.latest_torque_moza = 0.0
+
+        self.packet_count = 0
+        self.last_packet_time = None
+
+        self.signal_plot_page = SignalPlotPage()
         self.spring_page = SpringPage()
         self.stability_page = StabilityPage()
-        self.transparency_page = TransparencyPage()
+        self.transparency_page = TransparencyPage(HAPTIC_FIDEL, SYS_ID)
         
-        self.tf_page = TransferFunctionPage(
-            title_text="CAPT Motor Characterisation",
-            description_text="Frequency response analysis based on identified second-order mechanical properties.",
-            default_tf_eq="G(s) = 1 / (0.0103 s^2 + 9.31 s + 43.91)",
-            J=0.0103, b=9.31, kappa=43.91
+        # New Transfer Function Pages
+        self.capt_tf_page = TransferFunctionPage(
+            "CAPT Motor Characterisation Transfer Function",
+            "Frequency response analysis modeling closed-loop actuation dynamics of the custom CAPT motor.",
+            "H_CAPT(s) =  1 / (0.0103 s^2 + 9.31 s + 43.91)"
         )
+        # self.moza_tf_page = TransferFunctionPage(
+        #     "Moza R5 Specifications & Transfer Function",
+        #     "Direct-drive steering feedback system characterization, torque bandwidth, and frequency response profile.",
+        #     "H_Moza(s) =  1 / (0.0103 s^2 + 9.31 s + 43.91)"
+        # )
 
-        self.tabs.addTab(self.home_page, "Dashboard")
-        self.tabs.addTab(self.signals_page, "Live Signals")
-        self.tabs.addTab(self.spring_page, "Virtual Spring")
-        self.tabs.addTab(self.tf_page, "CAPT Characterisation")
-        self.tabs.addTab(self.transparency_page, "Transparency Analysis")
-        self.tabs.addTab(self.stability_page, "Stability Evaluation")
+        tabs = QTabWidget()
+        tabs.addTab(self.signal_plot_page, "Live Signals")
+        tabs.addTab(HomePage(), "Home")
+        #tabs.addTab(self.moza_tf_page, "Moza R5 specs")
+        tabs.addTab(self.stability_page, "Stability Analysis")
+        tabs.addTab(self.transparency_page, "Transparency Analysis")
+        tabs.addTab(self.capt_tf_page, "CAPT Motor Characterisation")
+        tabs.addTab(self.spring_page, "Virtual Spring Visualization")
+        self.setCentralWidget(tabs)
 
-        self.timer = QTimer(self)
-        self.timer.setInterval(GUI_UPDATE_PERIOD_MS)
-        self.timer.timeout.connect(self.process_incoming_packet)
-        self.timer.start()
+        self.status_label = QLabel(f"Listening on UDP {UDP_IP}:{UDP_PORT}")
+        self.statusBar().addPermanentWidget(self.status_label)
 
-    def process_incoming_packet(self) -> None:
+        self.gui_timer = QTimer(self)
+        self.gui_timer.timeout.connect(self._process_gui_tick)
+        self.gui_timer.start(GUI_UPDATE_PERIOD_MS)
+
+    @staticmethod
+    def _init_joystick() -> Optional[pygame.joystick.Joystick]:
+        try:
+            pygame.init()
+            pygame.joystick.init()
+            if pygame.joystick.get_count() > 0:
+                wheel = pygame.joystick.Joystick(0)
+                wheel.init()
+                return wheel
+        except Exception:
+            pass
+        return None
+
+    def _process_gui_tick(self) -> None:
         packet = self.udp_worker.get_latest_packet()
-        
-        # If no UDP stream is live, fallback to default/zeroed data so the UI runs smoothly
-        if packet is None:
-            angle_val = 0.0
-            torque_val = 0.0
-            curr_1 = 0.0
-            curr_2 = 0.0
-            moza_angle = 0.0
-            moza_torque = 0.0
-        else:
-            angle_val = float(packet.get(ANGLE_SIGNAL_NAME, 0.0))
-            torque_val = float(packet.get(TORQUE_SIGNAL_NAME, 0.0))
-            curr_1 = float(packet.get(CURRENT_PHASE_1_NAME, 0.0))
-            curr_2 = float(packet.get(CURRENT_PHASE_2_NAME, 0.0))
-            moza_angle = float(packet.get(R5_ANGLE_SIGNAL_NAME, 0.0))
-            moza_torque = float(packet.get(R5_TORQUE_SIGNAL_NAME, 0.0))
+        if packet is not None:
+            self.packet_count += 1
+            self.last_packet_time = time.monotonic()
 
-        self.signals_page.add_sample(angle_val, torque_val, curr_1, curr_2, moza_angle, moza_torque)
-        self.spring_page.update_measurements(angle_val, torque_val)
-        self.transparency_page.add_sample(torque_val, angle_val)
+            if (val := self._read_number(packet, ANGLE_SIGNAL_NAME)) is not None:
+                self.latest_angle_rad = val
+            if (val := self._read_number(packet, TORQUE_SIGNAL_NAME)) is not None:
+                self.latest_torque = val
+            if (val := self._read_number(packet, CURRENT_PHASE_1_NAME)) is not None:
+                self.latest_current_1 = val
+            if (val := self._read_number(packet, CURRENT_PHASE_2_NAME)) is not None:
+                self.latest_current_2 = val
+
+        if self.wheel is not None:
+            try:
+                pygame.event.pump()
+                raw_axis = self.wheel.get_axis(0)
+                self.latest_angle_moza = raw_axis * 450.0
+                self.latest_torque_moza = abs(raw_axis) * MOZA_R5_MAX_TORQUE
+                self.moza_sock.sendto(struct.pack("<d", self.latest_angle_moza), (CONTROL_IP, CONTROL_PORT))
+            except Exception:
+                pass
+
+        self.signal_plot_page.add_sample(
+            self.latest_angle_rad, self.latest_torque,
+            self.latest_current_1, self.latest_current_2,
+            self.latest_angle_moza, self.latest_torque_moza
+        )
+        self.spring_page.update_measurements(self.latest_angle_rad, self.latest_torque)
+        self.transparency_page.add_sample(self.latest_torque, self.latest_angle_rad)
+        self._update_connection_status()
+
+    @staticmethod
+    def _read_number(packet: dict, signal_name: str) -> Optional[float]:
+        try:
+            val = float(packet.get(signal_name))
+            return val if math.isfinite(val) else None
+        except (TypeError, ValueError):
+            return None
+
+    def _update_connection_status(self) -> None:
+        if self.last_packet_time is None:
+            self.status_label.setText(f"Waiting for dSPACE on {UDP_IP}:{UDP_PORT}")
+            return
+        elapsed = time.monotonic() - self.last_packet_time
+        status = "Receiving" if elapsed < 1.0 else ("No recent packets" if elapsed < 3.0 else "Connection inactive")
+        self.status_label.setText(f"{status} | Packets: {self.packet_count}")
 
     def closeEvent(self, event) -> None:
         self.udp_worker.stop()
+        self.udp_receiver.close()
+        self.angle_sender.close()
+        try:
+            self.moza_sock.close()
+        except OSError:
+            pass
+        pygame.quit()
         event.accept()
 
 
-# ---------------------------------------------------------------------------
-# Application Entry Point
-# ---------------------------------------------------------------------------
-
-if __name__ == '__main__':
+def main() -> None:
     app = QApplication(sys.argv)
     app.setStyleSheet(MODERN_STYLE_SHEET)
-
-    receiver = None
-    sender = None
-
-    try:
-        receiver = UdpReceiver(UDP_IP, UDP_PORT)
-        sender = UdpSender(ANGLE_FORWARD_IP, ANGLE_FORWARD_PORT)
-    except OSError as e:
-        print(f"Warning: Could not bind to UDP port {UDP_PORT}: {e}")
-        # Continue executing without crashing so the GUI can still open for review/testing
-
-    udp_worker = UdpWorkerThread(receiver, sender)
-    udp_worker.start()
-
-    window = MainWindow(udp_worker)
+    window = MainWindow()
     window.show()
+    sys.exit(app.exec())
 
-    exit_code = app.exec()
 
-    udp_worker.stop()
-    if receiver:
-        receiver.close()
-    if sender:
-        sender.close()
-    sys.exit(exit_code)
+if __name__ == "__main__":
+    main()
