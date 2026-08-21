@@ -2,46 +2,36 @@ function a = fcn(Eobs, omega)
 
 persistent a_prev
 
-%% Parameters
-gamma = 0.05;          % adaptation gain (tune 0.01-0.2)
-omega_min = 1e-3;      % avoid division by zero
+% Parameters
+deltaT = 0.001;
+omega_min = 1e-3;     % Prevent division by zero
+a_min = 0.001;
+a_max = 100;          
 
-a_min = 0.05;          % minimum damping
-a_max = 5.0;           % maximum damping
-
-%% Initialization
+% Initialization
 if isempty(a_prev)
-    a_prev = a_min;
+    a_prev = 1e-4;
 end
 
-%% Safe velocity
+% Safe angular velocity
 omega_safe = max(abs(omega), omega_min);
 
-%% Adaptation
-
+% Adaptation law
 if Eobs < 0
-
-    % Increase damping when passivity is violated
-    da = -gamma * Eobs / (omega_safe^2);
-
-    a = a_prev + da;
-
+    a = a_prev + Eobs/(deltaT*omega_safe^2);
 else
+    % Keep previous value instead of resetting
+    a = a_prev;
+end
 
-    % Slowly relax damping toward minimum
-    relaxation = 0.01;
+% Saturation
+a = min(max(a, a_min), a_max);
 
-    a = a_prev - relaxation*(a_prev-a_min);
+% Store for next iteration
+a_prev = a;
 
 end
 
-%% Saturation
-a = min(max(a,a_min),a_max);
-
-%% Save state
-a_prev = a;
-
-end 
 
 function [k_theta_est, b_theta_est] = fcn(tau_h, theta, omega, alpha_acc)
 %#codegen
