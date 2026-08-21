@@ -9,7 +9,6 @@ from threading import Lock
 from typing import Optional
 import numpy as np
 import pyqtgraph as pg
-import pygame
 from PyQt6.QtCore import QPointF, Qt, QTimer, QThread
 from PyQt6.QtGui import QColor, QPainter, QPen, QPolygonF, QPixmap
 from PyQt6.QtWidgets import (
@@ -26,6 +25,7 @@ from PyQt6.QtWidgets import (
     QWidget,
     QScrollArea,
     QFrame,
+    QMessageBox,
 )
 
 # ---------------------------------------------------------------------------
@@ -49,7 +49,6 @@ CURRENT_PHASE_2_NAME = "AO_ch16"
 R5_TORQUE_SIGNAL_NAME = "Moza R5 Torque"
 R5_ANGLE_SIGNAL_NAME = "Moza R5 Angle"
 
-# Signals for Transparency Analysis tab (Back-drivability removed)
 TRANSPARENCY_SIGNAL = "Transparency"
 HAPTIC_FIDELITY_SIGNAL = "Haptic Fidelity"
 
@@ -195,7 +194,7 @@ class UdpSender:
 class UdpWorkerThread(QThread):
     """Background thread handling high-frequency socket polling safely."""
     
-    def __init__(self, receiver: UdpReceiver, sender: UdpSender):
+    def __init__(self, receiver: Optional[UdpReceiver], sender: Optional[UdpSender]):
         super().__init__()
         self.receiver = receiver
         self.sender = sender
@@ -205,21 +204,24 @@ class UdpWorkerThread(QThread):
 
     def run(self) -> None:
         while self._is_running:
-            packet = self.receiver.read_latest_packet()
-            if packet is not None:
-                angle_val = packet.get(ANGLE_SIGNAL_NAME)
-                if angle_val is not None:
-                    try:
-                        numeric_angle = float(angle_val)
-                        if math.isfinite(numeric_angle):
-                            self.sender.send_angle(numeric_angle)
-                    except (TypeError, ValueError):
-                        pass
+            if self.receiver is not None:
+                packet = self.receiver.read_latest_packet()
+                if packet is not None:
+                    angle_val = packet.get(ANGLE_SIGNAL_NAME)
+                    if angle_val is not None and self.sender is not None:
+                        try:
+                            numeric_angle = float(angle_val)
+                            if math.isfinite(numeric_angle):
+                                self.sender.send_angle(numeric_angle)
+                        except (TypeError, ValueError):
+                            pass
 
-                with self.buffer_lock:
-                    self.latest_packet = packet
+                    with self.buffer_lock:
+                        self.latest_packet = packet
+                else:
+                    QThread.msleep(5)
             else:
-                QThread.msleep(1)
+                QThread.msleep(100)
 
     def get_latest_packet(self) -> Optional[dict]:
         with self.buffer_lock:
@@ -242,7 +244,7 @@ class SpringWidget(QWidget):
         self.angle_rad = 0.0
         self.measured_torque = 0.0
         self.reference_angle_rad = 0.0
-        self.kappa = 1.0
+        self.kappa = 43.91
         self.setMinimumHeight(300)
 
         self._axis_pen = QPen(QColor(140, 140, 140), 1, Qt.PenStyle.DashLine)
@@ -345,10 +347,10 @@ class SpringPage(QWidget):
         self.torque_label = QLabel("Measured torque: 0.000 Nm")
 
         self.kappa_input = QDoubleSpinBox()
-        self.kappa_input.setRange(0.0, 20.0)
-        self.kappa_input.setDecimals(3)
-        self.kappa_input.setSingleStep(0.1)
-        self.kappa_input.setValue(1.0)
+        self.kappa_input.setRange(0.0, 200.0)
+        self.kappa_input.setDecimals(2)
+        self.kappa_input.setSingleStep(1.0)
+        self.kappa_input.setValue(43.91)
         self.kappa_input.setSuffix(" Nm/rad")
 
         reset_button = QPushButton("Reset reference")
@@ -428,7 +430,6 @@ class TransferFunctionPage(QWidget):
         eq_layout.addWidget(eq_title)
         eq_layout.addWidget(eq_content)
 
-        # Bode Plots (Magnitude & Phase)
         plot_layout = QHBoxLayout()
         self.mag_plot = self._create_plot("Bode Magnitude Response", "Gain", "dB")
         self.phase_plot = self._create_plot("Bode Phase Response", "Phase", "°")
@@ -436,17 +437,14 @@ class TransferFunctionPage(QWidget):
         plot_layout.addWidget(self.mag_plot)
         plot_layout.addWidget(self.phase_plot)
 
-        # Generate sample Bode curves using specified parameters J, b, kappa
-        frequencies = np.logspace(-1, 3, 200) # 0.1 Hz to 1000 Hz
+        frequencies = np.logspace(-1, 3, 200)
         omega = 2 * np.pi * frequencies
         
-        # Second-order mechanical impedance/transfer function: H(s) = 1 / (J*s^2 + b*s + kappa)
-        # Substitute s = j*omega
         real_part = kappa - J * (omega**2)
         imag_part = b * omega
         
         mag_val = 1.0 / np.sqrt(real_part**2 + imag_part**2)
-        mag = 20 * np.log10(mag_val / mag_val[0]) # Normalized relative to DC
+        mag = 20 * np.log10(mag_val / mag_val[0])
         phase = -np.arctan2(imag_part, real_part) * (180 / np.pi)
 
         self.mag_plot.plot(frequencies, mag, pen=pg.mkPen(color=(37, 99, 235), width=2))
@@ -471,7 +469,7 @@ class TransferFunctionPage(QWidget):
 
 
 class TransparencyPage(QWidget):
-    """Transparency Analysis tab with live interactive plots for Transparency and Haptic Fidelity."""
+    """Transparency Analysis tab with live interactive plots."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.start_time = time.monotonic()
@@ -749,3 +747,101 @@ class HomePage(QWidget):
         v_layout.addWidget(t_label)
         v_layout.addWidget(b_label)
         return card
+
+
+class MainWindow(QMainWindow):
+    """Main application window tying together all modules and the background UDP loop."""
+    def __init__(self, udp_worker: UdpWorkerThread):
+        super().__init__()
+        self.udp_worker = udp_worker
+        self.setWindowTitle("CAPT Motor & Haptic Interface Telemetry Suite")
+        self.resize(1300, 850)
+
+        self.tabs = QTabWidget()
+        self.setCentralWidget(self.tabs)
+
+        self.home_page = HomePage()
+        self.signals_page = SignalPlotPage()
+        self.spring_page = SpringPage()
+        self.stability_page = StabilityPage()
+        self.transparency_page = TransparencyPage()
+        
+        self.tf_page = TransferFunctionPage(
+            title_text="CAPT Motor Characterisation",
+            description_text="Frequency response analysis based on identified second-order mechanical properties.",
+            default_tf_eq="G(s) = 1 / (0.0103 s^2 + 9.31 s + 43.91)",
+            J=0.0103, b=9.31, kappa=43.91
+        )
+
+        self.tabs.addTab(self.home_page, "Dashboard")
+        self.tabs.addTab(self.signals_page, "Live Signals")
+        self.tabs.addTab(self.spring_page, "Virtual Spring")
+        self.tabs.addTab(self.tf_page, "CAPT Characterisation")
+        self.tabs.addTab(self.transparency_page, "Transparency Analysis")
+        self.tabs.addTab(self.stability_page, "Stability Evaluation")
+
+        self.timer = QTimer(self)
+        self.timer.setInterval(GUI_UPDATE_PERIOD_MS)
+        self.timer.timeout.connect(self.process_incoming_packet)
+        self.timer.start()
+
+    def process_incoming_packet(self) -> None:
+        packet = self.udp_worker.get_latest_packet()
+        
+        # If no UDP stream is live, fallback to default/zeroed data so the UI runs smoothly
+        if packet is None:
+            angle_val = 0.0
+            torque_val = 0.0
+            curr_1 = 0.0
+            curr_2 = 0.0
+            moza_angle = 0.0
+            moza_torque = 0.0
+        else:
+            angle_val = float(packet.get(ANGLE_SIGNAL_NAME, 0.0))
+            torque_val = float(packet.get(TORQUE_SIGNAL_NAME, 0.0))
+            curr_1 = float(packet.get(CURRENT_PHASE_1_NAME, 0.0))
+            curr_2 = float(packet.get(CURRENT_PHASE_2_NAME, 0.0))
+            moza_angle = float(packet.get(R5_ANGLE_SIGNAL_NAME, 0.0))
+            moza_torque = float(packet.get(R5_TORQUE_SIGNAL_NAME, 0.0))
+
+        self.signals_page.add_sample(angle_val, torque_val, curr_1, curr_2, moza_angle, moza_torque)
+        self.spring_page.update_measurements(angle_val, torque_val)
+        self.transparency_page.add_sample(torque_val, angle_val)
+
+    def closeEvent(self, event) -> None:
+        self.udp_worker.stop()
+        event.accept()
+
+
+# ---------------------------------------------------------------------------
+# Application Entry Point
+# ---------------------------------------------------------------------------
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    app.setStyleSheet(MODERN_STYLE_SHEET)
+
+    receiver = None
+    sender = None
+
+    try:
+        receiver = UdpReceiver(UDP_IP, UDP_PORT)
+        sender = UdpSender(ANGLE_FORWARD_IP, ANGLE_FORWARD_PORT)
+    except OSError as e:
+        print(f"Warning: Could not bind to UDP port {UDP_PORT}: {e}")
+        # Continue executing without crashing so the GUI can still open for review/testing
+
+    udp_worker = UdpWorkerThread(receiver, sender)
+    udp_worker.start()
+
+    window = MainWindow(udp_worker)
+    window.show()
+
+    exit_code = app.exec()
+
+    udp_worker.stop()
+    if receiver:
+        receiver.close()
+    if sender:
+        sender.close()
+    sys.exit(exit_code)
