@@ -8,6 +8,7 @@ from collections import deque
 from threading import Lock
 from typing import Optional
 import numpy as np
+import pandas as pd
 import pyqtgraph as pg
 import pygame
 from PyQt6.QtCore import QPointF, Qt, QTimer, QThread
@@ -428,7 +429,6 @@ class TransferFunctionPage(QWidget):
         eq_layout.addWidget(eq_title)
         eq_layout.addWidget(eq_content)
 
-        # Bode Plots (Magnitude & Phase)
         plot_layout = QHBoxLayout()
         self.mag_plot = self._create_plot("Bode Magnitude Response", "Gain", "dB")
         self.phase_plot = self._create_plot("Bode Phase Response", "Phase", "°")
@@ -436,8 +436,7 @@ class TransferFunctionPage(QWidget):
         plot_layout.addWidget(self.mag_plot)
         plot_layout.addWidget(self.phase_plot)
 
-        # Generate sample Bode curves
-        frequencies = np.logspace(-1, 3, 200) # 0.1 Hz to 1000 Hz
+        frequencies = np.logspace(-1, 3, 200)
         omega_n = 65.29
         zeta = 6.92
         mag = 20 * np.log10(1.0 / np.sqrt((1 - (frequencies/omega_n)**2)**2 + (2*zeta*frequencies/omega_n)**2))
@@ -465,7 +464,7 @@ class TransferFunctionPage(QWidget):
 
 
 class MozaR5TelemetryPage(QWidget):
-    """Dedicated Moza R5 Telemetry tab with live or file-loaded plots for Angle, Velocity, Acceleration, and Torque."""
+    """Dedicated Moza R5 Telemetry tab parsing Angle, Velocity, Acceleration, and Torque from CSV."""
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
@@ -473,7 +472,7 @@ class MozaR5TelemetryPage(QWidget):
         layout.setSpacing(15)
 
         header_layout = QHBoxLayout()
-        title = QLabel("Moza R5 Real-Time & CSV Analysis")
+        title = QLabel("Moza R5 CSV Telemetry Analysis")
         title.setStyleSheet("font-size: 18px; font-weight: bold; color: #ffffff;")
         
         load_btn = QPushButton("Load Moza Telemetry CSV")
@@ -485,14 +484,19 @@ class MozaR5TelemetryPage(QWidget):
         header_layout.addWidget(load_btn)
         layout.addLayout(header_layout)
 
-        # 2x2 Grid Layout for the 4 Telemetry Channels
+        # 2x2 Grid Layout for the 4 Telemetry Channels loaded from CSV
         grid = QGridLayout()
         grid.setSpacing(10)
 
-        self.plot_angle = self._create_plot("Steering Angle", "Angle (°)", "#00d2ff")
-        self.plot_vel = self._create_plot("Angular Velocity", "Velocity (°/s)", "#10b981")
-        self.plot_acc = self._create_plot("Angular Acceleration", "Acceleration (°/s²)", "#ef4444")
-        self.plot_torque = self._create_plot("Torque / Spring Force", "Torque (Nm)", "#f59e0b")
+        self.plot_angle = self._create_plot("Steering Angle", "Angle (°)")
+        self.plot_vel = self._create_plot("Angular Velocity", "Velocity (°/s)")
+        self.plot_acc = self._create_plot("Angular Acceleration", "Acceleration (°/s²)")
+        self.plot_torque = self._create_plot("Torque / Force", "Torque (Nm)")
+
+        self.curve_angle = self.plot_angle.plot(pen=pg.mkPen("#00d2ff", width=2))
+        self.curve_vel = self.plot_vel.plot(pen=pg.mkPen("#10b981", width=2))
+        self.curve_acc = self.plot_acc.plot(pen=pg.mkPen("#ef4444", width=2))
+        self.curve_torque = self.plot_torque.plot(pen=pg.mkPen("#f59e0b", width=2))
 
         grid.addWidget(self.plot_angle, 0, 0)
         grid.addWidget(self.plot_vel, 0, 1)
@@ -501,48 +505,51 @@ class MozaR5TelemetryPage(QWidget):
 
         layout.addLayout(grid, 1)
 
-    def _create_plot(self, title: str, y_label: str, color: str) -> pg.PlotWidget:
+        # Try auto-loading default MOZA_FILE if it exists
+        self.load_telemetry_csv(MOZA_FILE)
+
+    @staticmethod
+    def _create_plot(title: str, y_label: str) -> pg.PlotWidget:
         plot = pg.PlotWidget(title=f"<span style='color:#ffffff; font-size:12pt;'>{title}</span>")
         plot.setBackground("#181b22")
         plot.showGrid(x=True, y=True, alpha=0.3)
         plot.setLabel("bottom", "Time (s)", color="#9ca3af")
         plot.setLabel("left", y_label, color="#9ca3af")
-        
-        if hasattr(self, "plot_angle"):
-            plot.setXLink(self.plot_angle)
-            
         return plot
 
-    def load_telemetry_csv(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Open Moza Telemetry CSV", "", "CSV Files (*.csv)"
-        )
+    def load_telemetry_csv(self, file_path: Optional[str] = None):
+        if not file_path or not isinstance(file_path, str):
+            file_path, _ = QFileDialog.getOpenFileName(
+                self, "Open Moza Telemetry CSV", "", "CSV Files (*.csv)"
+            )
         if not file_path:
             return
 
-        import pandas as pd
-        df = pd.read_csv(file_path)
-
-        if "Timestamp" not in df.columns:
+        try:
+            df = pd.read_csv(file_path)
+        except Exception:
             return
 
-        time = df["Timestamp"].values
+        # Look for typical column name matches
+        time_col = next((c for c in df.columns if 'time' in c.lower() or 'timestamp' in c.lower()), None)
+        angle_col = next((c for c in df.columns if 'angle' in c.lower() or 'position' in c.lower()), None)
+        vel_col = next((c for c in df.columns if 'vel' in c.lower() or 'speed' in c.lower()), None)
+        acc_col = next((c for c in df.columns if 'acc' in c.lower()), None)
+        torque_col = next((c for c in df.columns if 'torque' in c.lower() or 'force' in c.lower() or 'spring' in c.lower()), None)
 
-        self.plot_angle.clear()
-        if "Angle_deg" in df.columns:
-            self.plot_angle.plot(time, df["Angle_deg"].values, pen=pg.mkPen("#00d2ff", width=2))
+        if time_col is None:
+            time_col = df.columns[0]  # fallback to first column as time if unnamed
 
-        self.plot_vel.clear()
-        if "Velocity_deg_s" in df.columns:
-            self.plot_vel.plot(time, df["Velocity_deg_s"].values, pen=pg.mkPen("#10b981", width=2))
+        time_arr = df[time_col].values
 
-        self.plot_acc.clear()
-        if "Acceleration_deg_s2" in df.columns:
-            self.plot_acc.plot(time, df["Acceleration_deg_s2"].values, pen=pg.mkPen("#ef4444", width=2))
-
-        self.plot_torque.clear()
-        if "SpringStrength" in df.columns:
-            self.plot_torque.plot(time, df["SpringStrength"].values, pen=pg.mkPen("#f59e0b", width=2))
+        if angle_col and angle_col in df.columns:
+            self.curve_angle.setData(time_arr, df[angle_col].values)
+        if vel_col and vel_col in df.columns:
+            self.curve_vel.setData(time_arr, df[vel_col].values)
+        if acc_col and acc_col in df.columns:
+            self.curve_acc.setData(time_arr, df[acc_col].values)
+        if torque_col and torque_col in df.columns:
+            self.curve_torque.setData(time_arr, df[torque_col].values)
 
 
 class TransparencyPage(QWidget):
@@ -810,6 +817,7 @@ class MainWindow(QMainWindow):
         self.latest_torque = 0.0
         self.latest_current_1 = 0.0
         self.latest_current_2 = 0.0
+        
         self.latest_angle_moza = 0.0
         self.latest_torque_moza = 0.0
 
@@ -876,19 +884,22 @@ class MainWindow(QMainWindow):
         if self.wheel is not None:
             try:
                 pygame.event.pump()
-                self.latest_angle_moza = self.wheel.get_axis(0) * math.radians(180)
+                raw_axis = self.wheel.get_axis(0)
+                self.latest_angle_moza = raw_axis * 180.0
                 self.latest_torque_moza = 0.0
             except Exception:
                 pass
 
+        # Update Live Signals Page
         self.signal_plot_page.add_sample(
             self.latest_angle_rad,
             self.latest_torque,
             self.latest_current_1,
             self.latest_current_2,
-            self.latest_angle_moza,
+            math.radians(self.latest_angle_moza),
             self.latest_torque_moza
         )
+
         self.spring_page.update_measurements(self.latest_angle_rad, self.latest_torque)
 
     @staticmethod
