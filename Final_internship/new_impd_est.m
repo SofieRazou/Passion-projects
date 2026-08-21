@@ -63,4 +63,22 @@ a2 = theta_vec(2);
 b1 = theta_vec(3);
 b2 = theta_vec(4);
 
+% Given your estimated ARX parameters:
+% A = [1, a1, a2];
+% B = [b1, b2];
+
+% 1. Create a discrete transfer function object
+sys_d = tf(B, A, dt);
+
+% 2. Convert directly to continuous-time transfer function using Tustin's method
+sys_c = d2c(sys_d, 'tustin');
+
+% 3. Extract numerator and denominator of the continuous system
+[num_c, den_c] = tfdata(sys_c, 'v');
+
+% den_c will be in the form [J, b, kappa] (normalized if J=1)
+J_ratio     = den_c(1);
+b_ratio     = den_c(2);
+kappa_ratio = den_c(3);
+
 end
