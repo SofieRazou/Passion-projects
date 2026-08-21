@@ -1,45 +1,54 @@
-function a = fcn(Eobs, omega)
+function a = fcn(E_generated, sum_omega2_dt, cycle_completed)
+%#codegen
+% Adaptive Damping Regulation based on Dinc et al., 2024
+% E_generated: The energy leaked/generated during the last cycle (Joules).
+% sum_omega2_dt: The integral of omega^2 * dt over the cycle.
+% cycle_completed: Boolean flag (1 if a cycle just ended, 0 otherwise).
 
-persistent a_prev
-
-%% Parameters
-gamma = 0.05;          % adaptation gain (tune 0.01-0.2)
-omega_min = 1e-3;      % avoid division by zero
-
-a_min = 0.05;          % minimum damping
-a_max = 5.0;           % maximum damping
-
-%% Initialization
-if isempty(a_prev)
-    a_prev = a_min;
-end
-
-%% Safe velocity
-omega_safe = max(abs(omega), omega_min);
-
-%% Adaptation
-
-if Eobs < 0
-
-    % Increase damping when passivity is violated
-    da = -gamma * Eobs / (omega_safe^2);
-
-    a = a_prev + da;
-
-else
-
-    % Slowly relax damping toward minimum
-    relaxation = 0.01;
-
-    a = a_prev - relaxation*(a_prev-a_min);
-
-end
-
-%% Saturation
-a = min(max(a,a_min),a_max);
-
-%% Save state
-a_prev = a;
+    persistent a_prev
+    
+    %% Parameters
+    a_min = 0.05;          % minimum damping transparency limit (Nms/rad)
+    a_max = 5.0;           % maximum damping stability limit (Nms/rad)
+    epsilon = 1e-5;        % safe minimum to avoid division by zero
+    
+    %% Initialization
+    if isempty(a_prev)
+        a_prev = a_min;
+    end
+    
+    %% Cycle-Based Adaptation Logic
+    % We only update the damping value at the exact completion of a cycle
+    % to prevent high-frequency chattering and noise.
+    
+    if cycle_completed == 1
+        
+        % If E_generated > 0, the virtual environment leaked energy (passivity violated).
+        if E_generated > 0 
+            
+            % The exact required damping to dissipate the generated energy
+            safe_denominator = max(sum_omega2_dt, epsilon);
+            da = E_generated / safe_denominator; 
+            
+            a = a_prev + da;
+            
+        else
+            % If no energy was generated (system is dissipative/stable), 
+            % slowly relax damping toward minimum for high transparency.
+            relaxation = 0.1; % Tune how fast it returns to transparent state
+            a = a_prev - relaxation * (a_prev - a_min);
+        end
+        
+        %% Saturation bounds
+        a = min(max(a, a_min), a_max);
+        
+        %% Save state for the next cycle
+        a_prev = a;
+        
+    else
+        % If in the middle of a cycle, hold the previous damping value
+        a = a_prev;
+    end
 
 end
 
