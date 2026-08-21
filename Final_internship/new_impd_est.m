@@ -1,69 +1,64 @@
-function [kappa_est, b_est] = Moment_Impedance_Estimator(torque, angle, velocity, dt)
+function [kappa_est, b_est] = DREM_Inspired_Estimator(torque, angle, velocity, dt)
 %#codegen
-% METHOD OF MOMENTS WITH RIDGE REGULARIZATION (SINGULARITY-PROOF)
-%
-% Prevents matrix singularities during zero-crossings by adding a 
-% small diagonal regularization factor.
+% ROBUST DECOUPLED IMPEDANCE ESTIMATOR (SINGULARITY-FREE)
+% Avoids matrix inversions by filtering and processing signals independently.
 
-%% Persistent Filters (States) for Moments
-persistent M_tt M_tv M_vv M_tau_t M_tau_v alpha kappa_prev b_prev
+%% Persistent Filters (States)
+persistent F_tau_th F_th_th F_th_v F_tau_v F_v_v alpha kappa_prev b_prev
 
 %% Initialization
-if isempty(M_tt)
-    M_tt     = 0.0; 
-    M_tv     = 0.0; 
-    M_vv     = 0.0; 
-    M_tau_t  = 0.0; 
-    M_tau_v  = 0.0; 
-    alpha    = 0.98; % Smoothing coefficient
+if isempty(F_tau_th)
+    F_tau_th = 0.0; % Filtered torque * angle
+    F_th_th  = 0.0px; % Filtered angle^2
+    F_th_v   = 0.0; % Filtered angle * velocity
+    F_tau_v  = 0.0; % Filtered torque * velocity
+    F_v_v    = 0.0; % Filtered velocity^2
     
+    alpha    = 0.98; % Filter memory coefficient
     kappa_prev = 1.816;
     b_prev     = 0.01;
 end
 
-%% 1. Compute Instantaneous Products
-tt    = angle * angle;
-tv    = angle * velocity;
-vv    = velocity * velocity;
-tau_t = torque * angle;
-tau_v = torque * velocity;
+%% 1. Compute Instantaneous Cross-Products
+tau_th = torque * angle;
+th_th  = angle * angle;
+th_v   = angle * velocity;
+tau_v  = torque * velocity;
+v_v    = velocity * velocity;
 
-%% 2. Low-Pass Filter the Moments
-M_tt     = alpha * M_tt    + (1 - alpha) * tt;
-M_tv     = alpha * M_tv    + (1 - alpha) * tv;
-M_vv     = alpha * M_vv    + (1 - alpha) * vv;
-M_tau_t  = alpha * M_tau_t + (1 - alpha) * tau_t;
-M_tau_v  = alpha * M_tau_v + (1 - alpha) * tau_v;
+%% 2. Low-Pass Filter the Products (Continuous Integration)
+F_tau_th = alpha * F_tau_th + (1 - alpha) * tau_th;
+F_th_th  = alpha * F_th_th  + (1 - alpha) * th_th;
+F_th_v   = alpha * F_th_v   + (1 - alpha) * th_v;
+F_tau_v  = alpha * F_tau_v  + (1 - alpha) * tau_v;
+F_v_v    = alpha * F_v_v    + (1 - alpha) * v_v;
 
-%% 3. Moment Matrix with Ridge Regularization (Prevents Singularities)
-% Adding a tiny epsilon to the diagonal ensures the matrix is always invertible,
-% even when angles/velocities cross zero and raw moments drop to 0.
-epsilon_reg = 1e-4; 
+%% 3. Decoupled Scalar Estimation with Safe Denominators
+% Instead of a raw 2x2 matrix inversion prone to zero-crossing drops, 
+% we compute independent directional estimates with a strict lower bound on energy.
 
-A = [M_tt + epsilon_reg, M_tv; 
-     M_tv,             M_vv + epsilon_reg];
- 
-b_vec = [M_tau_t; 
-         M_tau_v];
+epsilon_safe = 1e-4;
 
-%% 4. Stable 2x2 Analytical Solve
-det_A = A(1,1)*A(2,2) - A(1,2)*A(2,1);
-
-if abs(det_A) > 1e-8
-    inv_det = 1.0 / det_A;
-    kappa_est = inv_det * ( A(2,2) * b_vec(1) - A(1,2) * b_vec(2));
-    b_est     = inv_det * (-A(2,1) * b_vec(1) + A(1,1) * b_vec(2));
-    
-    % Update memory of last good estimates
+% Estimate stiffness (kappa) primarily when angle energy is active
+if abs(F_th_th) > epsilon_safe
+    % Cross-talk compensation using mixed terms
+    kappa_candidate = (F_tau_th - F_th_v * b_prev) / F_th_th;
+    kappa_est = kappa_candidate;
     kappa_prev = kappa_est;
-    b_prev     = b_est;
 else
-    % Fallback to last valid state if severely ill-conditioned
-    kappa_est = kappa_prev;
-    b_est     = b_prev;
+    kappa_est = kappa_prev; % Hold last known good value near zero angle
 end
 
-%% 5. Non-Negative Physical Constraints
+% Estimate damping (b) primarily when velocity energy is active
+if abs(F_v_v) > epsilon_safe
+    b_candidate = (F_tau_v - F_th_v * kappa_prev) / F_v_v;
+    b_est = b_candidate;
+    b_prev = b_est;
+else
+    b_est = b_prev; % Hold last known good value near zero velocity
+end
+
+%% 4. Non-Negative Physical Constraints
 kappa_est = max(0.0, kappa_est);
 b_est     = max(0.0, b_est);
 
