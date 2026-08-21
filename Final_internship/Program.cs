@@ -38,8 +38,8 @@ class Program
 
             while (true)
             {
-                // Use a standard integer for error status to avoid missing enum type errors
-                int errCode = 0;
+                // Use default enum value to match the exact SDK expected reference type
+                mozaAPI.ERRORCODE errCode = default;
 
                 // 1. Read incoming hardware telemetry
                 var HIDDATA = getHIDData(ref errCode);
