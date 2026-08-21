@@ -13,7 +13,7 @@ function [k_theta_est, b_theta_est] = fcn(tau_h, theta, omega, alpha_acc, dt)
     
     % Configuration Parameters
     theta_wall = 0.0;          % Virtual wall boundary angle (rad)
-    J = 0.05;                  % Device rotational inertia (kg*m^2)
+    J = 0.0103;                  % Device rotational inertia (kg*m^2)
     
     theta_err = theta - theta_wall;
     
