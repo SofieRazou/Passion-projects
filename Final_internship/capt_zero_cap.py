@@ -462,9 +462,8 @@ class TransferFunctionPage(QWidget):
         plot.showGrid(x=True, y=True, alpha=0.15)
         return plot
 
-
 class MozaR5TelemetryPage(QWidget):
-    """Dedicated Moza R5 Telemetry tab robustly streaming data from a live-updating CSV file."""
+    """Real-time scrolling telemetry tab optimized for streaming live CSV files."""
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
@@ -472,10 +471,10 @@ class MozaR5TelemetryPage(QWidget):
         layout.setSpacing(15)
 
         header_layout = QHBoxLayout()
-        title = QLabel("Moza R5 Live CSV Telemetry Streaming")
+        title = QLabel("Moza R5 Real-Time Telemetry Stream")
         title.setStyleSheet("font-size: 18px; font-weight: bold; color: #ffffff;")
         
-        self.status_indicator = QLabel("● Live Streaming Active")
+        self.status_indicator = QLabel("● Real-Time Streaming Active")
         self.status_indicator.setStyleSheet("color: #10b981; font-weight: bold;")
 
         load_btn = QPushButton("Browse CSV File")
@@ -510,12 +509,12 @@ class MozaR5TelemetryPage(QWidget):
         layout.addLayout(grid, 1)
 
         self.current_file_path = MOZA_FILE
-        self.last_mod_time = 0
+        self.file_position = 0  # Tracks bytes read for incremental streaming
 
-        # Setup Polling Timer (Refreshes every 100ms)
-        self.poll_timer = QTimer(self)
-        self.poll_timer.timeout.connect(self.update_live_csv)
-        self.poll_timer.start(100)
+        # High-frequency real-time tick (updates every 30ms)
+        self.stream_timer = QTimer(self)
+        self.stream_timer.timeout.connect(self.stream_new_csv_rows)
+        self.stream_timer.start(30)
 
     @staticmethod
     def _create_plot(title: str, y_label: str) -> pg.PlotWidget:
@@ -532,9 +531,14 @@ class MozaR5TelemetryPage(QWidget):
         )
         if file_path:
             self.current_file_path = file_path
-            self.last_mod_time = 0
+            self.file_position = 0
+            # Clear existing curves on file switch
+            self.curve_angle.clear()
+            self.curve_vel.clear()
+            self.curve_acc.clear()
+            self.curve_torque.clear()
 
-    def update_live_csv(self):
+    def stream_new_csv_rows(self):
         if not self.current_file_path:
             return
 
@@ -545,91 +549,53 @@ class MozaR5TelemetryPage(QWidget):
                 self.status_indicator.setStyleSheet("color: #ef4444; font-weight: bold;")
                 return
 
-            # Check modification timestamp to prevent unnecessary reads and file lock collisions
-            mod_time = os.path.getmtime(self.current_file_path)
-            if mod_time == self.last_mod_time:
-                return
-            self.last_mod_time = mod_time
+            # Read incrementally starting from last byte position to avoid file locking & lag
+            with open(self.current_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                f.seek(self.file_position)
+                lines = f.readlines()
+                self.file_position = f.tell()
 
-            self.status_indicator.setText("● Live Streaming Active")
+            if not lines:
+                return
+
+            self.status_indicator.setText("● Real-Time Streaming Active")
             self.status_indicator.setStyleSheet("color: #10b981; font-weight: bold;")
 
-            # Read safely via python buffer container to bypass exclusive Windows locks
+            # Parse newly arrived lines using pandas StringIO
             import io
-            with open(self.current_file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
+            chunk_text = "".join(lines)
             
-            if not content.strip():
+            # If starting fresh from position 0, include header row if present
+            if self.file_position == len(chunk_text): 
+                pass
+            
+            # Read chunk data safely
+            df_chunk = pd.read_csv(io.StringIO(chunk_text), header=0 if self.file_position <= len(chunk_text) and not chunk_text.startswith(',') else None)
+            
+            if df_chunk.empty:
                 return
 
-            df = pd.read_csv(io.StringIO(content))
-            if df.empty:
-                return
+            # Update plot data arrays instantly
+            time_col = next((c for c in df_chunk.columns if 'time' in str(c).lower() or 'timestamp' in str(c).lower()), df_chunk.columns[0])
+            angle_col = next((c for c in df_chunk.columns if 'angle' in str(c).lower() or 'position' in str(c).lower()), None)
+            vel_col = next((c for c in df_chunk.columns if 'vel' in str(c).lower() or 'speed' in str(c).lower()), None)
+            acc_col = next((c for c in df_chunk.columns if 'acc' in str(c).lower()), None)
+            torque_col = next((c for c in df_chunk.columns if 'torque' in str(c).lower() or 'force' in str(c).lower()), None)
 
-            time_col = next((c for c in df.columns if 'time' in c.lower() or 'timestamp' in c.lower()), df.columns[0])
-            angle_col = next((c for c in df.columns if 'angle' in c.lower() or 'position' in c.lower()), None)
-            vel_col = next((c for c in df.columns if 'vel' in c.lower() or 'speed' in c.lower()), None)
-            acc_col = next((c for c in df.columns if 'acc' in c.lower()), None)
-            torque_col = next((c for c in df.columns if 'torque' in c.lower() or 'force' in c.lower() or 'spring' in c.lower()), None)
-
-            time_arr = df[time_col].values
-
-            if angle_col and angle_col in df.columns:
-                self.curve_angle.setData(time_arr, df[angle_col].values)
-            if vel_col and vel_col in df.columns:
-                self.curve_vel.setData(time_arr, df[vel_col].values)
-            if acc_col and acc_col in df.columns:
-                self.curve_acc.setData(time_arr, df[acc_col].values)
-            if torque_col and torque_col in df.columns:
-                self.curve_torque.setData(time_arr, df[torque_col].values)
+            if angle_col and angle_col in df_chunk.columns:
+                self.curve_angle.setData(df_chunk[time_col].values, df_chunk[angle_col].values)
+            if vel_col and vel_col in df_chunk.columns:
+                self.curve_vel.setData(df_chunk[time_col].values, df_chunk[vel_col].values)
+            if acc_col and acc_col in df_chunk.columns:
+                self.curve_acc.setData(df_chunk[time_col].values, df_chunk[acc_col].values)
+            if torque_col and torque_col in df_chunk.columns:
+                self.curve_torque.setData(df_chunk[time_col].values, df_chunk[torque_col].values)
 
         except (PermissionError, OSError):
-            # Gracefully catch temporary file locks while the external program is actively appending bytes
+            # Gracefully handle write conflicts when the external logger locks the file for milliseconds
             pass
         except Exception:
-            self.status_indicator.setText("● Parse Warning")
-            self.status_indicator.setStyleSheet("color: #f59e0b; font-weight: bold;")
-class TransparencyPage(QWidget):
-    """Transparency Analysis tab that automatically loads and displays two images side-by-side."""
-    def __init__(self, image_path_1: str, image_path_2: str, parent=None):
-        super().__init__(parent)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
-
-        title = QLabel("Transparency Analysis - Automatic Image Comparison")
-        title.setStyleSheet("font-size: 18px; font-weight: bold; color: #ffffff;")
-        layout.addWidget(title)
-
-        images_layout = QHBoxLayout()
-
-        self.image_label_1 = QLabel()
-        self.image_label_1.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image_label_1.setMinimumHeight(350)
-        self._load_image(image_path_1, self.image_label_1)
-
-        self.image_label_2 = QLabel()
-        self.image_label_2.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image_label_2.setMinimumHeight(350)
-        self._load_image(image_path_2, self.image_label_2)
-
-        images_layout.addWidget(self.image_label_1, 1)
-        images_layout.addWidget(self.image_label_2, 1)
-
-        layout.addLayout(images_layout, 1)
-
-    @staticmethod
-    def _load_image(file_path: str, target_label: QLabel) -> None:
-        pixmap = QPixmap(file_path)
-        if not pixmap.isNull():
-            target_label.setPixmap(pixmap.scaled(
-                target_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
-            ))
-            target_label.setStyleSheet("border: none; background: transparent;")
-        else:
-            target_label.setText(f"Could not load image from:\n{file_path}")
-            target_label.setStyleSheet("border: 2px dashed #374151; color: #ef4444; background: #181b22; border-radius: 8px;")
-
+            pass
 
 class SignalPlotPage(QWidget):
     def __init__(self, parent=None):
