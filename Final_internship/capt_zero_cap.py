@@ -1,3 +1,73 @@
+class TransparencyPage(QWidget):
+    """Transparency Analysis tab with support for loading and displaying two images."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        title = QLabel("Transparency Analysis - Image Comparison")
+        title.setStyleSheet("font-size: 18px; font-weight: bold; color: #ffffff;")
+        layout.addWidget(title)
+
+        # Create a horizontal layout to hold the two image containers side-by-side
+        images_layout = QHBoxLayout()
+
+        # Image Panel 1
+        panel1_layout = QVBoxLayout()
+        self.image_label_1 = QLabel("No Image 1 Loaded")
+        self.image_label_1.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.image_label_1.setStyleSheet("border: 2px dashed #374151; color: #9ca3af; background: #181b22; border-radius: 8px;")
+        self.image_label_1.setMinimumHeight(350)
+        
+        load_btn_1 = QPushButton("Load Image 1")
+        load_btn_1.clicked.connect(lambda: self.load_photo(self.image_label_1))
+        
+        panel1_layout.addWidget(self.image_label_1, 1)
+        panel1_layout.addWidget(load_btn_1)
+
+        # Image Panel 2
+        panel2_layout = QVBoxLayout()
+        self.image_label_2 = QLabel("No Image 2 Loaded")
+        self.image_label_2.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.image_label_2.setStyleSheet("border: 2px dashed #374151; color: #9ca3af; background: #181b22; border-radius: 8px;")
+        self.image_label_2.setMinimumHeight(350)
+        
+        load_btn_2 = QPushButton("Load Image 2")
+        load_btn_2.clicked.connect(lambda: self.load_photo(self.image_label_2))
+        
+        panel2_layout.addWidget(self.image_label_2, 1)
+        panel2_layout.addWidget(load_btn_2)
+
+        images_layout.addLayout(panel1_layout)
+        images_layout.addLayout(panel2_layout)
+
+        layout.addLayout(images_layout, 1)
+
+    def load_photo(self, target_label: QLabel) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Open Image", "", "Image Files (*.png *.jpg *.bmp *.jpeg)"
+        )
+        if file_path:
+            pixmap = QPixmap(file_path)
+            if not pixmap.isNull():
+                target_label.setPixmap(pixmap.scaled(
+                    target_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+                ))
+                target_label.setStyleSheet("border: none; background: transparent;")
+
+
+
+
+
+
+
+
+
+
+
+
+
 import json
 import math
 import socket
