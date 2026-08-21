@@ -12,9 +12,7 @@ class Program
 
     static void Main(string[] args)
     {
-        // Run the live telemetry and physics loop
         RunPhysicsTelemetryLoop();
-
         Console.WriteLine("Program finished.");
     }
 
@@ -22,6 +20,8 @@ class Program
     {
         Console.WriteLine("Starting Moza Physics & Telemetry Loop...");
         installMozaSDK();
+        
+        // Ensure ERRORCODE is referenced correctly based on your namespace/API setup
         ERRORCODE err = ERRORCODE.NORMAL;
 
         IntPtr hWnd = GetConsoleWindow();
@@ -33,7 +33,6 @@ class Program
         string csvFilePath = "moza_telemetry_log.csv";
         Stopwatch sw = Stopwatch.StartNew();
 
-        // Using a try-finally block guarantees removeMozaSDK() is called upon exit
         try
         {
             using (StreamWriter writer = new StreamWriter(csvFilePath, false))
@@ -45,7 +44,6 @@ class Program
 
                 while (true)
                 {
-                    // Allow breaking the loop gracefully if a key is pressed (e.g., ESC or Q)
                     if (Console.KeyAvailable)
                     {
                         var key = Console.ReadKey(true);
@@ -55,6 +53,7 @@ class Program
                         }
                     }
 
+                    // Pass 'ref err' correctly to the API method
                     var HIDDATA = getHIDData(ref err);
                     
                     if (!float.IsNaN(HIDDATA.fSteeringWheelAngle))
@@ -79,7 +78,7 @@ class Program
                     
                     double currentTime = sw.Elapsed.TotalSeconds;
 
-                    // Write telemetry row to the CSV file
+                    // Write telemetry row to CSV
                     writer.WriteLine($"{currentTime:F4},{wheelangle:F4},{wheelvel:F4},{wheelaccel:F4},{NaturalInertia:F4},{inertRatio:F4},{spring:F4},{throttle},{brake}");
 
                     // Display telemetry live on screen
@@ -96,13 +95,12 @@ class Program
                     Console.WriteLine($"Brake                 : {brake,6}          ");
            
                     Console.SetCursorPosition(0, 0);
-                    Thread.Sleep(5); // ~200Hz physics loop tick rate
+                    Thread.Sleep(5); // ~200Hz loop tick rate
                 }
             }
         }
         finally
         {
-            // This code block always runs, ensuring proper SDK cleanup
             Console.Clear();
             Console.WriteLine("Cleaning up and removing Moza SDK...");
             removeMozaSDK();
