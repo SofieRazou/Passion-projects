@@ -530,7 +530,6 @@ class MozaR5TelemetryPage(QWidget):
         except Exception:
             return
 
-        # Look for typical column name matches
         time_col = next((c for c in df.columns if 'time' in c.lower() or 'timestamp' in c.lower()), None)
         angle_col = next((c for c in df.columns if 'angle' in c.lower() or 'position' in c.lower()), None)
         vel_col = next((c for c in df.columns if 'vel' in c.lower() or 'speed' in c.lower()), None)
@@ -538,7 +537,7 @@ class MozaR5TelemetryPage(QWidget):
         torque_col = next((c for c in df.columns if 'torque' in c.lower() or 'force' in c.lower() or 'spring' in c.lower()), None)
 
         if time_col is None:
-            time_col = df.columns[0]  # fallback to first column as time if unnamed
+            time_col = df.columns[0]
 
         time_arr = df[time_col].values
 
@@ -890,7 +889,6 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-        # Update Live Signals Page
         self.signal_plot_page.add_sample(
             self.latest_angle_rad,
             self.latest_torque,
