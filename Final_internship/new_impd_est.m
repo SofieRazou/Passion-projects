@@ -1,38 +1,38 @@
-function [k_est, b_est] = fcn(F_h, x, v, a, dt)
+function [k_theta_est, b_theta_est] = fcn(tau_h, theta, omega, alpha_acc, dt)
 %#codegen
 
     % Persistent variables for RLS state persistence across simulation steps
-    persistent theta P initialized
+    persistent theta_est P initialized
     
     % Initialization on the first step
     if isempty(initialized)
-        theta = [1000; 5];     % Initial parameter guesses [k; b]
+        theta_est = [1000; 5]; % Initial parameter guesses [k_theta; b_theta]
         P = 1e3 * eye(2);      % Initial covariance matrix
         initialized = true;
     end
     
     % Algorithm Parameters
     lambda = 0.995;            % Forgetting factor
-    x_wall = 0.0;              % Virtual wall boundary position (m)
-    m = 0.5;                   % Device mass matching the plant (kg)
+    theta_wall = 0.0;          % Virtual wall boundary angle (rad)
+    J = 0.05;                  % Device rotational inertia / moment of inertia (kg*m^2)
     
-    x_err = x - x_wall;
+    theta_err = theta - theta_wall;
     
-    % Run RLS update only during active wall penetration and non-zero velocity
-    if x_err < 0 && abs(v) > 1e-3
-        % Regressor vector phi = [x_err * v; v^2]
-        phi = [x_err * v; v^2];
+    % Run RLS update only during active rotational wall penetration and non-zero velocity
+    if theta_err < 0 && abs(omega) > 1e-3
+        % Regressor vector phi = [theta_err * omega; omega^2]
+        phi = [theta_err * omega; omega^2];
         
-        % Output measurement y = Input Power - Kinetic Power Change
-        y = F_h * v - m * v * a;
+        % Output measurement y = Input Power - Kinetic Power Change (Rotational)
+        y = tau_h * omega - J * omega * alpha_acc;
         
         % Recursive Least Squares gain and update
         k_gain = P * phi / (lambda + phi' * P * phi);
-        theta = theta + k_gain * (y - phi' * theta);
+        theta_est = theta_est + k_gain * (y - phi' * theta_est);
         P = (P - k_gain * phi' * P) / lambda;
     end
     
-    % Enforce positive physical limits on estimated parameters
-    k_est = max(0, theta(1));
-    b_est = max(0, theta(2));
+    % Enforce positive physical limits on estimated rotational parameters
+    k_theta_est = max(0, theta_est(1));
+    b_theta_est = max(0, theta_est(2));
 end
