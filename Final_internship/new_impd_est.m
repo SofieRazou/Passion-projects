@@ -68,4 +68,20 @@ function [k_theta_est, b_theta_est] = fcn(tau_h, theta, omega, alpha_acc)
     % Update persistent state vector
     Theta(1) = k_theta_est;
     Theta(2) = b_theta_est;
+    % Persistent variables for internal low-pass smoothing
+    persistent k_filtered b_filtered
+    if isempty(k_filtered)
+        k_filtered = 0;
+        b_filtered = 0;
+    end
+    
+    % Low-pass filtering coefficient (closer to 1 = smoother, closer to 0 = faster)
+    alpha_smooth = 0.05; 
+    
+    k_filtered = (1 - alpha_smooth) * k_filtered + alpha_smooth * k_theta_est;
+    b_filtered = (1 - alpha_smooth) * b_filtered + alpha_smooth * b_theta_est;
+    
+    % Final output assignment
+    k_theta_est = k_filtered;
+    b_theta_est = b_filtered;
 end
