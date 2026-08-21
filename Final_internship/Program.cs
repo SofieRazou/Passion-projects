@@ -18,6 +18,9 @@ void RunPhysicsTelemetryLoop()
     Console.WriteLine("Starting Moza Physics & Telemetry Loop...");
     installMozaSDK();
 
+    // Properly initialize using the Moza SDK's error code enum
+    ERRORCODE err = ERRORCODE.NORMAL;
+
     IntPtr hWnd = GetConsoleWindow();
 
     var wheelangle = 0.0f;
@@ -41,9 +44,7 @@ void RunPhysicsTelemetryLoop()
 
         while (true)
         {
-            // 1. Read incoming hardware telemetry (steering angle, pedals)
-            // If your API requires a ref argument, pass a local dummy integer variable like `int err = 0;`
-            int err = 0;
+            // 1. Read incoming hardware telemetry using the SDK's expected ref error type
             var HIDDATA = getHIDData(ref err);
             
             if (!float.IsNaN(HIDDATA.fSteeringWheelAngle))
