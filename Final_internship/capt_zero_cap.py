@@ -406,7 +406,7 @@ class StabilityPage(QWidget):
 
 class TransferFunctionPage(QWidget):
     """Dedicated Transfer Function & Frequency Response page for system characterization."""
-    def __init__(self, title_text: str, description_text: str, default_tf_eq: str, parent=None):
+    def __init__(self, title_text: str, description_text: str, default_tf_eq: str, J: float, b: float, kappa: float, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
@@ -436,12 +436,18 @@ class TransferFunctionPage(QWidget):
         plot_layout.addWidget(self.mag_plot)
         plot_layout.addWidget(self.phase_plot)
 
-        # Generate sample Bode curves
+        # Generate sample Bode curves using specified parameters J, b, kappa
         frequencies = np.logspace(-1, 3, 200) # 0.1 Hz to 1000 Hz
-        omega_n = 25.0
-        zeta = 0.4
-        mag = 20 * np.log10(1.0 / np.sqrt((1 - (frequencies/omega_n)**2)**2 + (2*zeta*frequencies/omega_n)**2))
-        phase = -np.arctan2(2*zeta*(frequencies/omega_n), 1 - (frequencies/omega_n)**2) * (180 / np.pi)
+        omega = 2 * np.pi * frequencies
+        
+        # Second-order mechanical impedance/transfer function: H(s) = 1 / (J*s^2 + b*s + kappa)
+        # Substitute s = j*omega
+        real_part = kappa - J * (omega**2)
+        imag_part = b * omega
+        
+        mag_val = 1.0 / np.sqrt(real_part**2 + imag_part**2)
+        mag = 20 * np.log10(mag_val / mag_val[0]) # Normalized relative to DC
+        phase = -np.arctan2(imag_part, real_part) * (180 / np.pi)
 
         self.mag_plot.plot(frequencies, mag, pen=pg.mkPen(color=(37, 99, 235), width=2))
         self.phase_plot.plot(frequencies, phase, pen=pg.mkPen(color=(168, 85, 247), width=2))
@@ -475,7 +481,6 @@ class TransparencyPage(QWidget):
         self.transparency_values = deque(maxlen=max_pts)
         self.haptic_fidelity_values = deque(maxlen=max_pts)
 
-        # Plots setup (back-drivability plot removed)
         self.transparency_plot = self._create_plot("Transparency Analysis", "Transparency Index", "")
         self.fidelity_plot = self._create_plot("Haptic Fidelity Analysis", "Fidelity Score", "%")
 
