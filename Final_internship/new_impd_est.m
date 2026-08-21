@@ -1,65 +1,66 @@
-function [kappa_est, b_est] = DREM_Inspired_Estimator(torque, angle, velocity, dt)
+function [kappa_est, b_est] = Responsive_Impedance_Estimator(torque, angle, velocity, dt)
 %#codegen
-% ROBUST DECOUPLED IMPEDANCE ESTIMATOR (SINGULARITY-FREE)
-% Avoids matrix inversions by filtering and processing signals independently.
+% RESPONSIVE IMPEDANCE ESTIMATOR
+% Smoothly tracks changes in kappa and b using torque, angle, and velocity.
 
-%% Persistent Filters (States)
-persistent F_tau_th F_th_th F_th_v F_tau_v F_v_v alpha kappa_prev b_prev
+%% Persistent Filter States
+persistent F_tt F_tv F_vv F_tau_t F_tau_v kappa_curr b_curr alpha
 
 %% Initialization
-if isempty(F_tau_th)
-    F_tau_th = 0.0; % Filtered torque * angle
-    F_th_th  = 0.0px; % Filtered angle^2
-    F_th_v   = 0.0; % Filtered angle * velocity
-    F_tau_v  = 0.0; % Filtered torque * velocity
-    F_v_v    = 0.0; % Filtered velocity^2
+if isempty(F_tt)
+    F_tt     = 0.0; 
+    F_tv     = 0.0; 
+    F_vv     = 0.0; 
+    F_tau_t  = 0.0; 
+    F_tau_v  = 0.0; 
     
-    alpha    = 0.98; % Filter memory coefficient
-    kappa_prev = 1.816;
-    b_prev     = 0.01;
+    % A lower alpha (e.g., 0.90 to 0.95) allows the estimator to react 
+    % much faster and change smoothly instead of freezing or staying flat.
+    alpha    = 0.92; 
+    
+    kappa_curr = 1.816; % Initial guess
+    b_curr     = 0.01;  % Initial guess
 end
 
-%% 1. Compute Instantaneous Cross-Products
-tau_th = torque * angle;
-th_th  = angle * angle;
-th_v   = angle * velocity;
-tau_v  = torque * velocity;
-v_v    = velocity * velocity;
+%% 1. Instantaneous Products from Model Variables
+tt    = angle * angle;
+tv    = angle * velocity;
+vv    = velocity * velocity;
+tau_t = torque * angle;
+tau_v = torque * velocity;
 
-%% 2. Low-Pass Filter the Products (Continuous Integration)
-F_tau_th = alpha * F_tau_th + (1 - alpha) * tau_th;
-F_th_th  = alpha * F_th_th  + (1 - alpha) * th_th;
-F_th_v   = alpha * F_th_v   + (1 - alpha) * th_v;
-F_tau_v  = alpha * F_tau_v  + (1 - alpha) * tau_v;
-F_v_v    = alpha * F_v_v    + (1 - alpha) * v_v;
+%% 2. Fast Low-Pass Filtering (Sliding Window Effect)
+F_tt     = alpha * F_tt    + (1 - alpha) * tt;
+F_tv     = alpha * F_tv    + (1 - alpha) * tv;
+F_vv     = alpha * F_vv    + (1 - alpha) * vv;
+F_tau_t  = alpha * F_tau_t + (1 - alpha) * tau_t;
+F_tau_v  = alpha * F_tau_v + (1 - alpha) * tau_v;
 
-%% 3. Decoupled Scalar Estimation with Safe Denominators
-% Instead of a raw 2x2 matrix inversion prone to zero-crossing drops, 
-% we compute independent directional estimates with a strict lower bound on energy.
+%% 3. Solve 2x2 System with Small Regularization for Smoothness
+epsilon_reg = 1e-5; % Keeps matrix invertible without locking the values
 
-epsilon_safe = 1e-4;
+A11 = F_tt + epsilon_reg;
+A12 = F_tv;
+A21 = F_tv;
+A22 = F_vv + epsilon_reg;
 
-% Estimate stiffness (kappa) primarily when angle energy is active
-if abs(F_th_th) > epsilon_safe
-    % Cross-talk compensation using mixed terms
-    kappa_candidate = (F_tau_th - F_th_v * b_prev) / F_th_th;
-    kappa_est = kappa_candidate;
-    kappa_prev = kappa_est;
-else
-    kappa_est = kappa_prev; % Hold last known good value near zero angle
+det_A = (A11 * A22) - (A12 * A21);
+
+if abs(det_A) > 1e-7
+    inv_det = 1.0 / det_A;
+    
+    % Direct calculation working backward from the torque and model equations
+    kappa_raw = inv_det * ( A22 * F_tau_t - A12 * F_tau_v);
+    b_raw     = inv_det * (-A21 * F_tau_t + A11 * F_tau_v);
+    
+    % Smooth blending (Exponential smoothing on the output for silky transitions)
+    smooth_factor = 0.2; % Higher = faster tracking, Lower = smoother
+    kappa_curr = (1 - smooth_factor) * kappa_curr + smooth_factor * kappa_raw;
+    b_curr     = (1 - smooth_factor) * b_curr     + smooth_factor * b_raw;
 end
 
-% Estimate damping (b) primarily when velocity energy is active
-if abs(F_v_v) > epsilon_safe
-    b_candidate = (F_tau_v - F_th_v * kappa_prev) / F_v_v;
-    b_est = b_candidate;
-    b_prev = b_est;
-else
-    b_est = b_prev; % Hold last known good value near zero velocity
-end
-
-%% 4. Non-Negative Physical Constraints
-kappa_est = max(0.0, kappa_est);
-b_est     = max(0.0, b_est);
+%% 4. Apply Physical Bounds
+kappa_est = max(0.0, kappa_curr);
+b_est     = max(0.0, b_curr);
 
 end
