@@ -1,96 +1,132 @@
-function [kappa_est, b_est] = BlackBox_Impedance_Estimator(torque, angle, dt)
-%#codegen
-% REAL-TIME BLACK-BOX TO PHYSICAL IMPEDANCE ESTIMATOR
-% Estimates ARX parameters via RLS and converts them analytically 
-% to physical stiffness (kappa) and damping (b) using Tustin's method.
+% Live Impedance Estimator and Energy Cycle Regulator Simulation
+% Based on the logic from Dinc et al., 2024[cite: 1]
 
-%% Persistent Estimator States
-persistent theta_vec P lambda_r
+clear; clc; close all;
 
-%% Initialization
-if isempty(theta_vec)
-    theta_vec = zeros(4, 1);     % Parameters [a1; a2; b1; b2]
-    P         = 100.0 * eye(4);  % Covariance matrix
-    lambda_r  = 0.99;            % Forgetting factor
-end
+%% Simulation Parameters
+dt = 0.001;          % Sampling period (1 ms)[cite: 1]
+T_total = 2.0;       % Total simulation time (s)
+N_steps = round(T_total / dt);
 
-%% Persistent Delay Buffers (Past inputs and outputs)
-persistent y_1 y_2 u_1 u_2
-if isempty(y_1)
-    y_1 = 0.0; y_2 = 0.0;
-    u_1 = 0.0; u_2 = 0.0;
-end
+% System & Environment Parameters
+m = 0.5;             % Haptic device inertia (kg)[cite: 1]
+k_desired = 12000;   % Desired virtual wall stiffness (N/m)[cite: 1]
+x_wall = 0;          % Virtual wall position (m)
 
-%% 1. Build Regressor Vector
-phi = [-y_1; -y_2; u_1; u_2];
+% Preallocation of variables
+t = zeros(N_steps, 1);
+x = zeros(N_steps, 1);
+v = zeros(N_steps, 1);
+F_h = zeros(N_steps, 1);
+F_wall = zeros(N_steps, 1);
+E_tot = zeros(N_steps, 1);
+alpha_c = zeros(N_steps, 1);
 
-%% 2. RLS Update with Singularity Protection
-reg_energy = phi' * phi;
-epsilon_reg = 1e-5;
+% Time-window buffer for cycle detection (5 steps: 2 prev, current, 2 future)[cite: 1]
+energy_buffer = zeros(5, 1);
+buffer_idx = 1;
 
-if reg_energy > epsilon_reg
-    y_pred = phi' * theta_vec;
-    e_error = angle - y_pred;
+% State tracking variables
+current_cycle = 1;
+E_cycle_end = 0;
+E_prev_cycle = 0;
+E_gen = 0;
+current_alpha = 0;
+sum_v2_dt = 0;
+
+%% Main Simulation Loop
+for n = 2:N_steps
+    t(n) = (n - 1) * dt;
     
-    den = lambda_r + phi' * P * phi;
-    
-    if abs(den) > 1e-8
-        K = (P * phi) / den;
-        theta_vec = theta_vec + K * e_error;
-        
-        P_temp = (eye(4) - K * phi') * P;
-        P = (P_temp + P_temp') / 2.0;
-        P = P / lambda_r;
-    end
-end
-
-%% 3. Update Delay Buffers
-y_2 = y_1;
-y_1 = angle;
-u_2 = u_1;
-u_1 = torque;
-
-%% 4. Extract ARX Coefficients
-a1 = theta_vec(1);
-a2 = theta_vec(2);
-b1 = theta_vec(3);
-b2 = theta_vec(4);
-
-%% 5. Analytical Tustin Transformation (Discrete -> Continuous)
-% Maps discrete denominator polynomial (1 + a1*z^-1 + a2*z^-2) 
-% to continuous s-domain (s^2 + alpha1*s + alpha0) without toolbox dependencies.
-K_t = 2.0 / dt;
-K_t2 = K_t^2;
-
-% Denominator transformation coefficients
-denom_scaler = 1.0 + a1 + a2;
-if abs(denom_scaler) > 1e-6
-    % Continuous-time characteristic polynomial coefficients
-    alpha_1 = (2.0 * K_t * (1.0 - a2)) / denom_scaler;
-    alpha_0 = (K_t2 * (1.0 + a1 + a2)) / denom_scaler; % Wait, let's use standard bilinear mapping below:
-    
-    % Standard Bilinear (Tustin) mapping for z = (2/dt + s)/(2/dt - s):
-    % (2/dt + s)^2 + a1*(2/dt + s)*(2/dt - s) + a2*(2/dt - s)^2 = 0 expansion:
-    term_denom = 1.0 + a1 + a2;
-    if abs(term_denom) > 1e-6
-        c2 = 1.0 + a1 + a2;
-        c1 = 2.0 * K_t * (1.0 - a2);
-        c0 = K_t2 * (1.0 - a1 + a2);
-        
-        % Normalized continuous coefficients (assuming unit inertia J = 1 or scaling)
-        b_raw     = c1 / c2;
-        kappa_raw = c0 / c2;
+    % Simulate Human Force Input (e.g., pushing into the wall and releasing)
+    if t(n) > 0.2 && t(n) < 1.5
+        F_h(n) = 15 * sin(2 * pi * 3 * (t(n) - 0.2)); 
     else
-        b_raw     = 0.01;
-        kappa_raw = 1.816;
+        F_h(n) = 0;
     end
-else
-    b_raw     = 0.01;
-    kappa_raw = 1.816;
+    
+    % Position error calculation (penetration inside virtual wall when x < x_wall)
+    x_err = x(n-1) - x_wall;
+    
+    % Virtual wall reaction force with adaptive damping control
+    if x_err < 0
+        F_wall(n) = -k_desired * x_err - current_alpha * v(n-1);
+    else
+        F_wall(n) = 0;
+        current_alpha = 0; % Reset damping outside the wall
+    end
+    
+    % Plant Dynamics (Acceleration -> Velocity -> Position)
+    accel = (F_h(n) - F_wall(n)) / m;
+    v(n) = v(n-1) + accel * dt;
+    x(n) = x(n-1) + v(n) * dt;
+    
+    % Instantaneous Net Energy Observation[cite: 1]
+    power_inst = F_wall(n) * v(n);
+    if n == 2
+        E_tot(n) = power_inst * dt;
+    else
+        E_tot(n) = E_tot(n-1) + power_inst * dt;
+    end
+    
+    % Shift energy into the time-window buffer[cite: 1]
+    energy_buffer = circshift(energy_buffer, -1);
+    energy_buffer(5) = E_tot(n);
+    
+    % Check for Energy Cycle Completion using Time-Window Filter[cite: 1]
+    % Condition: E(t-2) > E(t-1) > E(t) < E(t+1) < E(t+2)
+    if energy_buffer(1) > energy_buffer(2) && ...
+       energy_buffer(2) > energy_buffer(3) && ...
+       energy_buffer(3) < energy_buffer(4) && ...
+       energy_buffer(4) < energy_buffer(5)
+       
+        % Actual energy cycle detected at buffer(3)
+        E_cycle_end = energy_buffer(3);
+        
+        if current_cycle > 1
+            % Estimate generated energy between consecutive cycles[cite: 1]
+            E_gen = E_cycle_end - E_prev_cycle;
+            
+            % Compute updated adaptive damping for the upcoming cycle[cite: 1]
+            if E_gen > 0 && sum_v2_dt > 0
+                current_alpha = current_alpha + (E_gen / sum_v2_dt);
+            end
+        end
+        
+        E_prev_cycle = E_cycle_end;
+        current_cycle = current_cycle + 1;
+        sum_v2_dt = 0; % Reset velocity accumulator for next cycle
+    end
+    
+    % Accumulate squared velocity terms for adaptive damping denominator[cite: 1]
+    if x_err < 0
+        sum_v2_dt = sum_v2_dt + (v(n)^2 * dt);
+    end
+    
+    alpha_c(n) = current_alpha;
 end
 
-%% 6. Physical Constraints & Output
-kappa_est = max(0.0, kappa_raw);
-b_est     = max(0.0, b_raw);
+%% Plotting Results
+figure('Name', 'Live Impedance Estimator & Energy Cycle Regulator', 'Position', [100, 100, 900, 700]);
 
-end
+subplot(4, 1, 1);
+plot(t, x * 1e3, 'LineWidth', 1.5);
+ylabel('Penetration (mm)');
+title('Virtual Wall Haptic Interaction with Cycle-Based Regulation[cite: 1]');
+grid on;
+
+subplot(4, 1, 2);
+plot(t, E_tot * 1e3, 'Color', 'b', 'LineWidth', 1.2);
+ylabel('Energy (mJ)');
+grid on;
+
+subplot(4, 1, 3);
+plot(t, alpha_c, 'Color', 'r', 'LineWidth', 1.5);
+ylabel('Adaptive Damping (\alpha_c)');
+grid on;
+
+subplot(4, 1, 4);
+plot(t, F_wall, 'Color', 'k', 'LineWidth', 1.2);
+xlabel('Time (s)');
+ylabel('Wall Force (N)');
+grid on;
