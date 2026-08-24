@@ -193,3 +193,7 @@ This section outlines useful C# SDK methods and commands commonly used for integ
 
 * **`DeviceParams.SetMaximumRotationAngle(int degrees)`**
   * **Explanation:** Adjusts the hardware lock angle (e.g., setting rotation limits to 540° or 900°) directly from software.
+
+To get access to those files and run the build and run commands enter in the lab computer the command:
+`cd Desktop\MozaIntegration\MozaIntegration` and them proceed with the build and run commands.
+In the MozaIntegration (second one) at the end of the telemetry execution you may find the experimental `csv` log file with the recorded angle, velocity, acceleration, and more FFB characteristics. 
