@@ -1,23 +1,33 @@
-% Real-time UDP Data Acquisition & System Identification Script
-% This script logs live angle and torque data via UDP, then fits 
-% a mass-spring-damper model and plots its Bode response.
-clear;
-close all;
-clc; 
+% =============================================================
+% 2. CONFIGURE UDP RECEIVER
+% =============================================================
+localPort = 50000;
+udpRx = dsp.UDPReceiver('LocalIPPort', localPort, ...
+    'MaximumMessageLength', 1024, ...
+    'MessageDataType', 'uint8');
+setup(udpRx);
+
+disp('========================================================');
+disp(' Listening for dSPACE UDP data stream on port 50000... ');
+disp(' (Will automatically stop & plot after 2s of silence) ');
+disp('========================================================');
+
 time_data = [];
 angle_data = [];
 torque_data = [];
-inactivityTimeout = 5; % seconds of silence to trigger post-processing
+fig = figure('Name', 'Live dSPACE Data Receiver', 'Position', [100, 100, 800, 500]);
 
-disp('--- Listening for UDP data stream... ---');
-tic;
+% Timeout parameters
+inactivityTimeout = 2.0; % Seconds to wait before stopping
+tic; % Start the inactivity timer
 
 while true
-    % Replace with your actual UDP reading function/object (e.g., read(u))
-    rawBytes = getAudioOrUDPData(); 
+    % Receive raw bytes from the configured dSPACE UDP stream
+    rawBytes = step(udpRx);
     
     if ~isempty(rawBytes)
-        tic; % Reset inactivity timer since a packet arrived
+        % Reset inactivity timer since a packet just arrived
+        tic; 
         
         rawString = char(rawBytes');
         dataPacket = jsondecode(rawString);
@@ -33,6 +43,8 @@ while true
         fprintf('Time: %.2fs | Angle: %.4f | Torque: %.4f\n', t_elapsed, angle_val, torque_val);
         
         if length(time_data) > 1
+            figure(fig);
+            
             subplot(2,1,1);
             plot(time_data, angle_data, 'b-', 'LineWidth', 1.2);
             grid on;
@@ -48,6 +60,7 @@ while true
             drawnow limitrate;
         end
     else
+        % Check if we've exceeded the inactivity timeout window
         if toc > inactivityTimeout
             disp('--- UDP stream inactivity timeout reached. Processing System ID & Bode Plot... ---');
             break;
@@ -55,32 +68,33 @@ while true
     end
 end
 
+% Release the UDP receiver object
+release(udpRx);
+
 %% Post-Processing: System Identification & Bode Plot Generation
 if length(time_data) > 10
-    % Ensure uniform or handled time vector for iddata
+    % Calculate uniform sample time step
     dt = mean(diff(time_data));
     
-    % Create iddata object: Input = Torque, Output = Angle (or vice versa depending on system definition)
+    % Create iddata object: Input = Torque, Output = Angle
     dataObj = iddata(angle_data, torque_data, dt);
     dataObj.InputName = 'Torque';
     dataObj.OutputName = 'Angle';
     
-    % Fit a 2nd-order Mass-Spring-Damper Transfer Function (1 input, 1 output)
-    % Using a grey-box or standard transfer function estimation (tfest)
+    % Fit a 2nd-order Mass-Spring-Damper Transfer Function model
     opt = tfestOptions;
     opt.Display = 'on';
     
-    % Estimating a 2nd order system with 0 zeros and 2 poles (typical mass-spring-damper)
     sys_identified = tfest(dataObj, 2, 0, opt);
     
     disp('--- Identified System Transfer Function ---');
     disp(sys_identified);
     
     % Plot the Bode Diagram of the empirical/identified system
-    figure;
+    figure('Name', 'Bode Plot of Empirical System');
     bode(sys_identified);
     grid on;
-    title(sprintf('Bode Plot of Empirical dSPACE System (Identified Model)'));
+    title('Bode Plot of Empirical dSPACE System (Identified Model)');
 else
     disp('Not enough data collected to perform system identification.');
 end
