@@ -22,8 +22,8 @@ inactivityTimeout = 2.0; % Seconds to wait before stopping
 tic; % Start the inactivity timer
 
 while true
-    % Receive raw bytes from the configured dSPACE UDP stream
-    rawBytes = step(udpRx);
+    % Receive raw bytes using the actual udpRx object
+    rawBytes = udpRx();
     
     if ~isempty(rawBytes)
         % Reset inactivity timer since a packet just arrived
