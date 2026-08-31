@@ -96,6 +96,6 @@ mkdocs serve
 ---
 
 ## Acknowledgments
-Special thanks to the mentors and researchers at the **Haptics Intelligence Department** of the **Max Planck Institute for Intelligent Systems** for their guidance and support throughout this internship.
+Special thanks to my supervisor Prof. Dr. Katherine J. Kuchenbecker and my mentors Dr. Bernard Javot and Dr. Giulia Ballardini, at the **Haptics Intelligence Department** of the **Max Planck Institute for Intelligent Systems** for their guidance and support throughout this internship.
 
 ---
