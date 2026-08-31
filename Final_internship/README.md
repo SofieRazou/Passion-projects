@@ -32,33 +32,33 @@ The codebase is logically organized into the following primary categories:
 ```text
 Final_internship/
 │
-├── gui/                  # Front-end & back-end dashboard, UDP/shared memory, MATLAB/Simulink
-├── controllers/          # Impedance, energy-based controllers, inertia & damping models
-├── sys_id/               # System identification benchmarks (Transfer functions vs. canonical forms)
-├── moza/                 # Moza SDK integration for custom force feedback and state fetching
+├── GUI/                  # Front-end & back-end dashboard, UDP/shared memory, MATLAB/Simulink
+├── Controllers/          # Impedance, energy-based controllers, inertia & damping models
+├── SYS_ID/               # System identification benchmarks (Transfer functions vs. canonical forms)
+├── MOZA/                 # Moza SDK integration for custom force feedback and state fetching
 ├── results/              # Experimental data, performance figures, and Bode plots
-└── docs/                 # Local MkDocs site detailing code architecture and engineering decisions
+└── my-docs-site/         # Local MkDocs site detailing code architecture and engineering decisions
 ```
 
 ---
 
 ## Detailed Module Breakdown
 
-### 1. GUI & Simulation (`/gui`)
+### 1. GUI & Simulation (`/GUI`)
 * **Dashboard Architecture:** Implements a robust front-end and back-end for real-time monitoring and control of the CAPT motor.
 * **Communication:** Utilizes **UDP communication** alongside a **shared-memory architecture** to ensure low-latency data exchange between concurrent modules.
 * **Simulations:** Houses MATLAB and Simulink models used for virtual driving simulations and pre-validation of control strategies.
 
-### 2. Controller Modules (`/controllers`)
+### 2. Controller Modules (`/Controllers`)
 * **Impedance Control:** Regulates the dynamic interaction between the motor and the user/environment.
 * **Energy-Based Control:** Guarantees passivity and stability under various operating conditions.
 * **Model Testing:** Validates controllers against specific physical phenomena, including variable inertia and damping models.
 
-### 3. System Identification (`/sys_id`)
+### 3. System Identification (`/SYS_ID`)
 * Dedicated scripts and routines for extracting accurate plant models.
 * Benchmarks **transfer function models** against **canonical system form representations** to determine the optimal identification approach for haptic transparency.
 
-### 4. Moza SDK Integration (`/moza`)
+### 4. Moza SDK Integration (`/MOZA`)
 * Interfaces with the **Moza Software Development Kit (SDK)**.
 * Unlocks advanced, highly customizable haptic force-feedback effects.
 * Fetches high-frequency telemetry data including precise angle, velocity, and acceleration measurements.
@@ -68,7 +68,7 @@ Final_internship/
 * Evaluates tracking and controller performance.
 * Highlights motor haptic fidelity via **relative Bode plots** (magnitude and phase responses).
 
-### 6. Documentation (`/docs`)
+### 6. Documentation (`/my-docs-site`)
 * Source files for the local **MkDocs** instance.
 * Serves as an extensive engineering wiki detailing API usage, software design patterns, and the rationale behind key engineering decisions.
 
