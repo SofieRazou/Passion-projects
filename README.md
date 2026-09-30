@@ -199,10 +199,6 @@ Across new projects I would like to explore topics including:
 - hardware design (Verilog / FPGA concepts)
 - optimization algorithms
 - quantum-inspired computing
-- computer vision
-- artificial intelligence
-- computational physics
-- scientific simulation
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
