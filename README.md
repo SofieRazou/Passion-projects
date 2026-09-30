@@ -7,10 +7,11 @@ A collection of my personal engineering and research projects exploring ideas in
 
 - algorithms
 - robotics
+- haptics
+- control systems
 - embedded systems
 - hardware design
 - computer vision
-- artificial intelligence
 - scientific computing
 
 Most of these projects were developed as **independent experiments, course extensions, or research explorations**.
