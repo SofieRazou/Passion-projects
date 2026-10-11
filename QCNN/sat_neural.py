@@ -24,7 +24,7 @@ NUM_CHANNELS = 3
 EPOCHS = 5
 BATCH_SIZE = 128
 
-# --- Load CIFAR-10 dataset (replace with EuroSAT + TFDS if needed)
+# --- Load CIFAR-10 dataset 
 (X_train, y_train), (X_test, y_test) = cifar10.load_data()
 
 X_train = X_train.astype("float32") / 255.0
@@ -60,7 +60,7 @@ history = model.fit(
     verbose=1
 )
 
-# Extract features from penultimate layer (the Dense(64) layer)
+# Extract features from penultimate layer 
 feature_extractor = tf.keras.Model(inputs=model.input, outputs=model.layers[-2].output)
 train_features = feature_extractor.predict(X_train)
 test_features = feature_extractor.predict(X_test)
@@ -70,7 +70,7 @@ pca = PCA(n_components=4)
 train_features_pca = pca.fit_transform(train_features)
 test_features_pca = pca.transform(test_features)
 
-# Quantum Classifier expects labels as 1D arrays (not one-hot)
+# Quantum Classifier expects labels as 1D arrays
 y_train_1d = y_train.flatten()
 y_test_1d = y_test.flatten()
 
@@ -79,7 +79,7 @@ q_clf.fit(train_features_pca, y_train_1d)
 q_clf.evaluate(test_features_pca, y_test_1d)
 
 
-# Plotting training history (optional)
+# Plotting training history
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator, FormatStrFormatter
 
