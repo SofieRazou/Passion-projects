@@ -17,19 +17,19 @@ A collection of my personal engineering and research projects exploring ideas in
 Most of these projects were developed as **independent experiments, course extensions, or research explorations**.
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Projects are listed in **reverse chronological order (newest first)**.
+> Projects are listed in **reverse chronological order (newest first)**.
 
-----------------------------------------------------------------------
+---
 
 # Projects
 
-### (~_~) SAT Fusion — Sensor Fusion with SAT Solvers
+### (~\_~) SAT Fusion — Sensor Fusion with SAT Solvers
 A lightweight **SAT-based decision engine** for embedded sensor fusion.
 
 The system integrates:
 - IMU for tumbling detection
-- ultrasonic sensing for obstacle detection
-- dual IR sensors for path following
+- Ultrasonic sensing for obstacle detection
+- Dual IR sensors for path following
 
 A **servo-based haptic feedback system** communicates navigation decisions to the user.  
 Designed as a prototype assistive navigation system for **visually impaired mobility**.
@@ -37,54 +37,54 @@ Designed as a prototype assistive navigation system for **visually impaired mobi
 ---
 
 ### [::] Particle Swarm Optimization — Car Simulation
-A simulation framework exploring **Particle Swarm Optimization (PSO)** applied to vehicle control and trajectory optimization.
+A simulation framework exploring **Particle Swarm Optimization ($\text{PSO}$)** applied to vehicle control and trajectory optimization.
 
 Focus areas:
-- swarm intelligence
-- distributed optimization
-- nonlinear control behavior
+- Swarm intelligence
+- Distributed optimization
+- Nonlinear control behavior
 
 ---
 
-### <*> Dummy QPU vs CPU Factorization Benchmark
-A classical multithreaded benchmark comparing **CPU-based factorization** with **quantum-inspired computational models**.
+### $\langle * \rangle$ Dummy QPU vs CPU Factorization Benchmark
+A classical multithreaded benchmark comparing **$\text{CPU}$-based factorization** with **quantum-inspired computational models**.
 
 Designed as a conceptual exploration of:
-- QPU-style computation
-- hybrid classical architectures
-- multithreaded performance scaling
+- $\text{QPU}$-style computation
+- Hybrid classical architectures
+- Multithreaded performance scaling
 
 ---
 
-### /\ RRT Visualization and Implementation
-Implementation and visualization of **Rapidly-exploring Random Trees (RRT)**.
+### $\bigtriangleup$ RRT Visualization and Implementation
+Implementation and visualization of **Rapidly-exploring Random Trees ($\text{RRT}$)**.
 
 Applications:
-- robotic motion planning
-- high-dimensional search spaces
-- autonomous navigation
+- Robotic motion planning
+- High-dimensional search spaces
+- Autonomous navigation
 
 Includes graphical visualization of the search tree expansion.
 
 ---
 
-### [|||] RISC-V Architecture in Verilog
-Implementation of a simplified **RISC-V processor architecture** in Verilog.
+### $[ \parallel \parallel \parallel ]$ RISC-V Architecture in Verilog
+Implementation of a simplified **$\text{RISC-V}$ processor architecture** in Verilog.
 
 Focus areas:
-- instruction decoding
-- pipeline design
-- hardware logic implementation
+- Instruction decoding
+- Pipeline design
+- Hardware logic implementation
 
 ---
 
-### [ ][ ] 2D Convolution Engine in Verilog
-A hardware implementation of **2D convolution operations** commonly used in image processing.
+### $[\quad][\quad]$ 2D Convolution Engine in Verilog
+A hardware implementation of **$2\text{D}$ convolution operations** commonly used in image processing.
 
 Applications:
-- FPGA image filtering
-- convolution acceleration
-- computer vision preprocessing
+- $\text{FPGA}$ image filtering
+- Convolution acceleration
+- Computer vision preprocessing
 
 ---
 
@@ -92,114 +92,106 @@ Applications:
 A conceptual emulator for **quantum-inspired instruction sets** running on classical hardware.
 
 Explores:
-- hybrid instruction models
-- alternative computational abstractions
+- Hybrid instruction models
+- Alternative computational abstractions
 
 ---
 
-### >>> FFT Verilog Architecture
-Hardware implementation of a **Fast Fourier Transform (FFT)** architecture.
+### $\gg\gg$ FFT Verilog Architecture
+Hardware implementation of a **Fast Fourier Transform ($\text{FFT}$)** architecture.
 
 Includes benchmarking against:
-- MATLAB FFT implementations
-- numerical accuracy comparisons
+- $\text{MATLAB}$ $\text{FFT}$ implementations
+- Numerical accuracy comparisons
 
 ---
 
-### [=^=] Lane Following Simulation — Kalman Filter Passivity Control
+### $[=^\wedge=]$ Lane Following Simulation — Kalman Filter Passivity Control
 Simulation of autonomous lane tracking using:
-
 - Kalman filtering
-- passivity-based control techniques
+- Passivity-based control techniques
 
 Designed as a control systems exploration for **autonomous vehicle navigation**.
 
 ---
 
-### /\ Borůvka-Based Feature Extraction
+### $\bigtriangleup$ Borůvka-Based Feature Extraction
 Experimental computer vision method inspired by **Borůvka’s algorithm**.
 
 Focus areas:
-- graph-based feature extraction
-- parallelizable image segmentation
-- algorithmic vision pipelines
+- Graph-based feature extraction
+- Parallelizable image segmentation
+- Algorithmic vision pipelines
 
 ---
 
-### [0_0] Autonomous Maze Solver Robot
-A **1:10 scale three-wheeled robot** capable of solving acyclic mazes.
+### [0\_0] Autonomous Maze Solver Robot
+A **$1:10$ scale three-wheeled robot** capable of solving acyclic mazes.
 
 Key ideas:
-- quantum-inspired wall-following logic
-- autonomous path exploration
-- embedded robotics control
+- Quantum-inspired wall-following logic
+- Autonomous path exploration
+- Embedded robotics control
 
 ---
 
-### <*> Quantum Graph Baseline
+### $\langle * \rangle$ Quantum Graph Baseline
 Experimental framework exploring **graph structures inspired by quantum computation models**.
 
 ---
 
 ### [+++] Multithreaded Matrix Multiplication and Compression
 Parallel matrix multiplication experiments combined with compression techniques to explore:
-
-- high-performance computing
-- algorithmic optimization
-- memory-efficient linear algebra
+- High-performance computing
+- Algorithmic optimization
+- Memory-efficient linear algebra
 
 ---
 
 ### (•‿•) Particle Physics Neural Networks
 Application of neural networks to **particle physics simulations** using:
+- $\text{PYTHIA}$
+- $\text{ROOT}$
+- $\text{TensorFlow}$
 
-- PYTHIA
-- ROOT
-- TensorFlow
-
-Inspired by workflows used in **CERN research environments**.
-
----
-
-### [CNN] Custom Educational Convolutional Neural Network
-A **from-scratch CNN implementation** designed for educational understanding of deep learning mechanics.
+Inspired by workflows used in **$\text{CERN}$ research environments**.
 
 ---
 
-### |==> Telescope Balance Controller
+### $[\text{CNN}]$ Custom Educational Convolutional Neural Network
+A **from-scratch $\text{CNN}$ implementation** designed for educational understanding of deep learning mechanics.
+
+---
+
+### $\mid\Longrightarrow$ Telescope Balance Controller
 A feedback controller for **stabilizing telescope orientation** during observation.
 
 ---
 
-###  _
- ( )
-(_)
-Real-Time Moon Positioning for Telescope Tracking
-
+### ☾ Real-Time Moon Positioning for Telescope Tracking
 Astronomical computation module that determines **real-time lunar position** to guide telescope tracking.
 
 ---
 
-### [WEB] Personal Portfolio Website
+### $[\text{WEB}]$ Personal Portfolio Website
 A personal portfolio website showcasing projects, experiments, and research explorations.
 
 ---
 
-### [MC] Monte Carlo Approach to the Specker Game
+### $[\text{MC}]$ Monte Carlo Approach to the Specker Game
 Course project developed at **ECE NTUA** exploring probabilistic strategies using Monte Carlo simulations.
 
 ---
 
-# Future areas of Exploration
+# Future Areas of Exploration
 
 Across new projects I would like to explore topics including:
+- Robotics and autonomous systems
+- Embedded systems
+- Hardware design ($\text{Verilog}$ / $\text{FPGA}$ concepts)
+- Optimization algorithms
+- Quantum-inspired computing
 
-- robotics and autonomous systems
-- embedded systems
-- hardware design (Verilog / FPGA concepts)
-- optimization algorithms
-- quantum-inspired computing
+---
 
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-More experiments and research prototypes will be added over time.
+*More experiments and research prototypes will be added over time.*
