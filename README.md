@@ -17,13 +17,13 @@ A collection of my personal engineering and research projects exploring ideas in
 Most of these projects were developed as **independent experiments, course extensions, or research explorations**.
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-> Projects are listed in **reverse chronological order (newest first)**.
+Projects are listed in **reverse chronological order (newest first)**.
 
 ---
 
 # Projects
 
-### (~\_~) SAT Fusion — Sensor Fusion with SAT Solvers
+### (~_~) SAT Fusion — Sensor Fusion with SAT Solvers
 A lightweight **SAT-based decision engine** for embedded sensor fusion.
 
 The system integrates:
@@ -37,7 +37,7 @@ Designed as a prototype assistive navigation system for **visually impaired mobi
 ---
 
 ### [::] Particle Swarm Optimization — Car Simulation
-A simulation framework exploring **Particle Swarm Optimization ($ \text{PSO}$)** applied to vehicle control and trajectory optimization.
+A simulation framework exploring **Particle Swarm Optimization ($\text{PSO}$)** applied to vehicle control and trajectory optimization.
 
 Focus areas:
 - Swarm intelligence
@@ -68,7 +68,7 @@ Includes graphical visualization of the search tree expansion.
 
 ---
 
-### $[ \parallel \parallel \parallel ]$ RISC-V Architecture in Verilog
+### $[\parallel \parallel \parallel]$ RISC-V Architecture in Verilog
 Implementation of a simplified **$\text{RISC-V}$ processor architecture** in Verilog.
 
 Focus areas:
@@ -78,7 +78,7 @@ Focus areas:
 
 ---
 
-### $[\quad][\quad]$ 2D Convolution Engine in Verilog
+### [ ][ ] 2D Convolution Engine in Verilog
 A hardware implementation of **$2\text{D}$ convolution operations** commonly used in image processing.
 
 Applications:
@@ -106,7 +106,7 @@ Includes benchmarking against:
 
 ---
 
-### $[=^\wedge=]$ Lane Following Simulation — Kalman Filter Passivity Control
+### [=^=] Lane Following Simulation — Kalman Filter Passivity Control
 Simulation of autonomous lane tracking using:
 - Kalman filtering
 - Passivity-based control techniques
@@ -125,7 +125,7 @@ Focus areas:
 
 ---
 
-### [0\_0] Autonomous Maze Solver Robot
+### [0_0] Autonomous Maze Solver Robot
 A **$1:10$ scale three-wheeled robot** capable of solving acyclic mazes.
 
 Key ideas:
@@ -158,7 +158,7 @@ Inspired by workflows used in **$\text{CERN}$ research environments**.
 
 ---
 
-### $[\text{CNN}]$ Custom Educational Convolutional Neural Network
+### [CNN] Custom Educational Convolutional Neural Network
 A **from-scratch $\text{CNN}$ implementation** designed for educational understanding of deep learning mechanics.
 
 ---
@@ -173,12 +173,12 @@ Astronomical computation module that determines **real-time lunar position** to 
 
 ---
 
-### $[\text{WEB}]$ Personal Portfolio Website
+### [WEB] Personal Portfolio Website
 A personal portfolio website showcasing projects, experiments, and research explorations.
 
 ---
 
-### $[\text{MC}]$ Monte Carlo Approach to the Specker Game
+### [MC] Monte Carlo Approach to the Specker Game
 Course project developed at **ECE NTUA** exploring probabilistic strategies using Monte Carlo simulations.
 
 ---
@@ -195,3 +195,6 @@ Across new projects I would like to explore topics including:
 ---
 
 *More experiments and research prototypes will be added over time.*
+
+
+
