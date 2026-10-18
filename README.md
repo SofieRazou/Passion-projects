@@ -16,7 +16,6 @@ A collection of my personal engineering and research projects exploring ideas in
 
 Most of these projects were developed as **independent experiments, course extensions, or research explorations**.
 
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Projects are listed in **reverse chronological order (newest first)**.
 
 ---
