@@ -37,7 +37,7 @@ Designed as a prototype assistive navigation system for **visually impaired mobi
 ---
 
 ### [::] Particle Swarm Optimization — Car Simulation
-A simulation framework exploring **Particle Swarm Optimization ($\text{PSO}$)** applied to vehicle control and trajectory optimization.
+A simulation framework exploring **Particle Swarm Optimization ($ \text{PSO}$)** applied to vehicle control and trajectory optimization.
 
 Focus areas:
 - Swarm intelligence
