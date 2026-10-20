@@ -22,7 +22,6 @@ K_v = 0.01;         % Velocity coupling coefficient (placeholder)
 % 2. Declare Symbolic Variables for States and Inputs
 syms phi dphi theta dtheta psi dpsi w_cyc w_coll real
 syms V_cyc V_coll real
-
 % 3. Define Auxiliary Forces and Motor Dynamics (Eqs. 4-8)[cite: 2]
 D = K_D * dpsi;
 tau_coll = K_tau * w_coll - K_v * dpsi;
@@ -73,7 +72,8 @@ C_pitch = [0, 0, 1, 0, 0, 0, 0, 0];
 sys_roll  = ss(A, B(:, 1), C_roll, 0);
 sys_pitch = ss(A, B(:, 2), C_pitch, 0);
 
-
+%Uncomment to reveal the system designer for control of the two angles to
+%reach the targeted reference, each 
 % controlSystemDesigner(sys_roll);
 % controlSystemDesigner(sys_pitch);
 
@@ -113,7 +113,11 @@ Mq = 0.4; %half of nominal value
 
 
 %CP transfer function
-CP = tf([6183/2500 2061/500 687/400], [1]);
+CP = tf([2.4732 4.122 1.7175], [1 0]);
+Kd_p =2.4732;
+Kp_p = 4.122;
+Ki_p =1.7175;
+
 TP = (Mcoll*QP*CP)/(1+Mcoll*QP*CP);
 [num_p, den_p]= tfdata(TP,'v');
 
@@ -133,7 +137,11 @@ grid on;
 hold on;
 
 %CR transfer function 
-CR = tf([1072203/1250000 4191339/2000000 97473/100000], [1]);
+CR = tf([0.8578 2.0957 0.9747], 1);
+Kd_r =  0.8578; 
+Kp_r = 2.0957;
+Ki_r =  0.9747;
+
 TR = (Mcyc*QR*CR)/(1+Mcyc*QR*CR);
 [num_r, den_r]= tfdata(TR,'v');
 
